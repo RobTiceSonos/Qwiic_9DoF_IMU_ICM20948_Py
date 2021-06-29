@@ -1178,6 +1178,12 @@ class QwiicIcm20948(object):
     def loadDMPFirmware(self):
         pass
 
+    def setDMPstartAddress(self):
+        pass
+
+    def writeDMPmems(self, reg, data):
+        pass
+
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
         # 0: use I2C_SLV0
