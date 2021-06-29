@@ -144,6 +144,63 @@ AK09916_REG_ST2 = 0x18
 AK09916_REG_CNTL2 = 0x31
 AK09916_REG_CNTL3 = 0x32
 
+DMP_START_ADDR = 4096
+
+# Accel FSR
+# The DMP scales accel raw data internally to align 1g as 2^25.
+# To do this and output hardware unit again as configured FSR, write 0x4000000 to ACC_SCALE DMP register, and write 0x40000 to ACC_SCALE2 DMP register.
+ACC_SCALE  = (30 * 16 + 0)  # 32-bit: Write accel scaling value for internal use
+ACC_SCALE2 = (79 * 16 + 4)  # 32-bit: Write accel scaling down value
+
+# Gyro FSR
+GYRO_FULLSCALE = (72 * 16 + 12)
+
+# gains
+ACCEL_FB_GAIN = (34 * 16)
+ACCEL_ONLY_GAIN = (16 * 16 + 12) # 32-bit: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
+GYRO_SF = (19 * 16) # 32-bit: gyro scaling factor
+
+# parameters for accel calibration
+ACCEL_ACCURACY = (97 * 16)
+ACCEL_CAL_RESET = (77 * 16)
+ACCEL_VARIANCE_THRESH = (93 * 16)
+ACCEL_CAL_RATE = (94 * 16 + 4) # 16-bit: 0 (225Hz, 112Hz, 56Hz)
+ACCEL_PRE_SENSOR_DATA = (97 * 16 + 4)
+ACCEL_COVARIANCE = (101 * 16 + 8)
+ACCEL_ALPHA_VAR = (91 * 16) # 32-bit: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
+ACCEL_A_VAR = (92 * 16) # 32-bit: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
+ACCEL_CAL_INIT = (94 * 16 + 2)
+ACCEL_CAL_SCALE_COVQ_IN_RANGE = (194 * 16)
+ACCEL_CAL_SCALE_COVQ_OUT_RANGE = (195 * 16)
+ACCEL_CAL_TEMPERATURE_SENSITIVITY = (194 * 16 + 4)
+ACCEL_CAL_TEMPERATURE_OFFSET_TRIM = (194 * 16 + 12)
+
+# Compass Cal params to be adjusted according to sampling rate
+CPASS_TIME_BUFFER = (112 * 16 + 14)
+CPASS_RADIUS_3D_THRESH_ANOMALY = (112 * 16 + 8)
+
+# mounting matrix: all 32-bit
+CPASS_MTX_00 = (23 * 16)  # Compass mount matrix and scale
+CPASS_MTX_01 = (23 * 16 + 4)
+CPASS_MTX_02 = (23 * 16 + 8)
+CPASS_MTX_10 = (23 * 16 + 12)
+CPASS_MTX_11 = (24 * 16)
+CPASS_MTX_12 = (24 * 16 + 4)
+CPASS_MTX_20 = (24 * 16 + 8)
+CPASS_MTX_21 = (24 * 16 + 12)
+CPASS_MTX_22 = (25 * 16)
+
+# B2S mounting matrix
+B2S_MTX_00 = (208 * 16)
+B2S_MTX_01 = (208 * 16 + 4)
+B2S_MTX_02 = (208 * 16 + 8)
+B2S_MTX_10 = (208 * 16 + 12)
+B2S_MTX_11 = (209 * 16)
+B2S_MTX_12 = (209 * 16 + 4)
+B2S_MTX_20 = (209 * 16 + 8)
+B2S_MTX_21 = (209 * 16 + 12)
+B2S_MTX_22 = (210 * 16)
+
 
 # define the class that encapsulates the device being created. All information associated with this
 # device is encapsulated by this class. The device class should be the only value exported
@@ -184,6 +241,7 @@ class QwiicIcm20948(object):
     AGB0_REG_INT_STATUS_1 = 			0x1A
     AGB0_REG_INT_STATUS_2 = 			0x1B
     AGB0_REG_INT_STATUS_3 = 			0x1C
+    AGB0_REG_SINGLE_FIFO_PRIORITY_SEL = 0x26
     AGB0_REG_DELAY_TIMEH = 				0x28
     AGB0_REG_DELAY_TIMEL = 				0x29
     AGB0_REG_ACCEL_XOUT_H = 			0x2D
@@ -232,6 +290,7 @@ class QwiicIcm20948(object):
     AGB0_REG_FIFO_COUNT_L = 			0x71
     AGB0_REG_FIFO_R_W = 				0x72
     AGB0_REG_DATA_RDY_STATUS = 			0x74
+    AGB0_REG_HW_FIX_DISABLE =           0x75
     AGB0_REG_FIFO_CFG = 				0x76
     AGB0_REG_MEM_START_ADDR = 			0x7C # Hmm  Invensense thought they were sneaky not listing these locations on the datasheet...
     AGB0_REG_MEM_R_W = 					0x7D # These three locations seem to be able to access some memory within the device
@@ -1178,10 +1237,13 @@ class QwiicIcm20948(object):
     def loadDMPFirmware(self):
         pass
 
-    def setDMPstartAddress(self):
+    def setDMPstartAddress(self, addr):
         pass
 
     def writeDMPmems(self, reg, data):
+        pass
+
+    def setGyroSF(self, div, level):
         pass
 
     def initializeDMP(self):
@@ -1306,7 +1368,7 @@ class QwiicIcm20948(object):
 
         #  Setup DMP start address through PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
-        dmp_addr = 4096
+        dmp_addr = DMP_START_ADDR
         self.setBank(2)
         self.writeByte(self.AGB2_REG_PRGM_START_ADDRH, dmp_addr >> 8)
         self.writeByte(self.AGB2_REG_PRGM_START_ADDRL, dmp_addr & 0xFF)
@@ -1317,25 +1379,33 @@ class QwiicIcm20948(object):
 
         # // Write the 2 byte Firmware Start Value to ICM PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
+        self.setDMPstartAddress(DMP_START_ADDR)
 
         # // Set the Hardware Fix Disable register to 0x48
         # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
         # uint8_t fix = 0x48;
         # result = write(AGB0_REG_HW_FIX_DISABLE, &fix, 1); if (result > worstResult) worstResult = result;
+        self.setBank(0)
+        self.writeByte(self.AGB0_REG_HW_FIX_DISABLE, 0x48)
 
         # // Set the Single FIFO Priority Select register to 0xE4
         # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
         # uint8_t fifoPrio = 0xE4;
         # result = write(AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, &fifoPrio, 1); if (result > worstResult) worstResult = result;
+        self.setBank(0)
+        self.writeByte(self.AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, 0xE4)
 
         # // Configure Accel scaling to DMP
         # // The DMP scales accel raw data internally to align 1g as 2^25
         # // In order to align internal accel raw data 2^25 = 1g write 0x04000000 when FSR is 4g
         # const unsigned char accScale[4] = {0x04, 0x00, 0x00, 0x00};
         # result = writeDMPmems(ACC_SCALE, 4, &accScale[0]); if (result > worstResult) worstResult = result; // Write accScale to ACC_SCALE DMP register
+        self.writeDMPmems(ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
+
         # // In order to output hardware unit data as configured FSR write 0x00040000 when FSR is 4g
         # const unsigned char accScale2[4] = {0x00, 0x04, 0x00, 0x00};
         # result = writeDMPmems(ACC_SCALE2, 4, &accScale2[0]); if (result > worstResult) worstResult = result; // Write accScale2 to ACC_SCALE2 DMP register
+        self.writeDMPmems(ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
 
         # // Configure Compass mount matrix and scale to DMP
         # // The mount matrix write to DMP register is used to align the compass axes with accel/gyro.
@@ -1358,6 +1428,18 @@ class QwiicIcm20948(object):
         # result = writeDMPmems(CPASS_MTX_20, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
         # result = writeDMPmems(CPASS_MTX_21, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
         # result = writeDMPmems(CPASS_MTX_22, 4, &mountMultiplierMinus[0]); if (result > worstResult) worstResult = result;
+        mountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
+        mountMultiplierPlus = [0x09, 0x99, 0x99, 0x99]
+        mountMultiplierMinus = [0xF6, 0x66, 0x66, 0x67]
+        self.writeDMPmems(CPASS_MTX_00, mountMultiplierPlus)
+        self.writeDMPmems(CPASS_MTX_01, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_02, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_10, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_11, mountMultiplierMinus)
+        self.writeDMPmems(CPASS_MTX_12, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_20, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_21, mountMultiplierZero)
+        self.writeDMPmems(CPASS_MTX_22, mountMultiplierMinus)
 
         # // Configure the B2S Mounting Matrix
         # const unsigned char b2sMountMultiplierZero[4] = {0x00, 0x00, 0x00, 0x00};
@@ -1371,6 +1453,17 @@ class QwiicIcm20948(object):
         # result = writeDMPmems(B2S_MTX_20, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
         # result = writeDMPmems(B2S_MTX_21, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
         # result = writeDMPmems(B2S_MTX_22, 4, &b2sMountMultiplierPlus[0]); if (result > worstResult) worstResult = result;
+        b2sMountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
+        b2sMountMultiplierPlus = [0x40, 0x00, 0x00, 0x00]
+        self.writeDMPmems(B2S_MTX_00, b2sMountMultiplierPlus)
+        self.writeDMPmems(B2S_MTX_01, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_02, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_10, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_11, b2sMountMultiplierPlus)
+        self.writeDMPmems(B2S_MTX_12, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_20, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_21, b2sMountMultiplierZero)
+        self.writeDMPmems(B2S_MTX_22, b2sMountMultiplierPlus)
 
         # // Configure the DMP Gyro Scaling Factor
         # // @param[in] gyro_div Value written to GYRO_SMPLRT_DIV register, where
@@ -1378,6 +1471,7 @@ class QwiicIcm20948(object):
         # //            10=102.2727Hz sample rate, ... etc.
         # // @param[in] gyro_level 0=250 dps, 1=500 dps, 2=1000 dps, 3=2000 dps
         # result = setGyroSF(19, 3); if (result > worstResult) worstResult = result; // 19 = 55Hz (see above), 3 = 2000dps (see above)
+        self.setGyroSF(19, 3)
 
         # // Configure the Gyro full scale
         # // 2000dps : 2^28
@@ -1386,30 +1480,42 @@ class QwiicIcm20948(object):
         # //  250dps : 2^25
         # const unsigned char gyroFullScale[4] = {0x10, 0x00, 0x00, 0x00}; // 2000dps : 2^28
         # result = writeDMPmems(GYRO_FULLSCALE, 4, &gyroFullScale[0]); if (result > worstResult) worstResult = result;
+        gyroFullScale = [0x10, 0x00, 0x00, 0x00]
+        self.writeDMPmems(GYRO_FULLSCALE, gyroFullScale)
 
         # // Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
         # const unsigned char accelOnlyGain[4] = {0x03, 0xA4, 0x92, 0x49}; // 56Hz
         # //const unsigned char accelOnlyGain[4] = {0x00, 0xE8, 0xBA, 0x2E}; // 225Hz
         # //const unsigned char accelOnlyGain[4] = {0x01, 0xD1, 0x74, 0x5D}; // 112Hz
         # result = writeDMPmems(ACCEL_ONLY_GAIN, 4, &accelOnlyGain[0]); if (result > worstResult) worstResult = result;
+        accelOnlyGain = [0x03, 0xA4, 0x92, 0x49]
+        self.writeDMPmems(ACCEL_ONLY_GAIN, accelOnlyGain)
 
         # // Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
         # const unsigned char accelAlphaVar[4] = {0x34, 0x92, 0x49, 0x25}; // 56Hz
         # //const unsigned char accelAlphaVar[4] = {0x3D, 0x27, 0xD2, 0x7D}; // 225Hz
         # //const unsigned char accelAlphaVar[4] = {0x3A, 0x49, 0x24, 0x92}; // 112Hz
         # result = writeDMPmems(ACCEL_ALPHA_VAR, 4, &accelAlphaVar[0]); if (result > worstResult) worstResult = result;
+        accelAlphaVar = [0x34, 0x92, 0x49, 0x25]
+        self.writeDMPmems(ACCEL_ALPHA_VAR, accelAlphaVar)
 
         # // Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
         # const unsigned char accelAVar[4] = {0x0B, 0x6D, 0xB6, 0xDB}; // 56Hz
         # //const unsigned char accelAVar[4] = {0x02, 0xD8, 0x2D, 0x83}; // 225Hz
         # //const unsigned char accelAVar[4] = {0x05, 0xB6, 0xDB, 0x6E}; // 112Hz
         # result = writeDMPmems(ACCEL_A_VAR, 4, &accelAVar[0]); if (result > worstResult) worstResult = result;
+        accelAVar = [0x0B, 0x6D, 0xB6, 0xDB]
+        self.writeDMPmems(ACCEL_A_VAR, accelAVar)
 
         # // Configure the Accel Cal Rate
         # const unsigned char accelCalRate[4] = {0x00, 0x00}; // Value taken from InvenSense Nucleo example
         # result = writeDMPmems(ACCEL_CAL_RATE, 2, &accelCalRate[0]); if (result > worstResult) worstResult = result;
+        accelCalRate = [0x00, 0x00]
+        self.writeDMPmems(ACCEL_CAL_RATE, accelCalRate)
 
         # // Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
         # // Let's set the Compass Time Buffer to 69 (Hz).
         # const unsigned char compassRate[2] = {0x00, 0x45}; // 69Hz
         # result = writeDMPmems(CPASS_TIME_BUFFER, 2, &compassRate[0]); if (result > worstResult) worstResult = result;
+        compassRate = [0x00, 0x45]
+        self.writeDMPmems(CPASS_TIME_BUFFER, compassRate)
