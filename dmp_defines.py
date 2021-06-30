@@ -17,6 +17,11 @@ class DMPInitFailure(Exception):
     pass
 
 
+class DMPSensorNotSupported(Exception):
+    """ Raised when a sensor is requested in the DMP that is not supported """
+    pass
+
+
 DMP_START_ADDRESS = 0x1000
 DMP_MEM_BANK_SIZE = 256
 DMP_LOAD_START = 0x90
@@ -414,7 +419,7 @@ def sensor_type_2_android_sensor(sensor):
     if sensor in lookup:
         return lookup[sensor]
 
-    raise Exception('Sensor type not supported.')
+    raise DMPSensorNotSupported('Sensor type not supported.')
 
 def inv_androidSensor_to_control_bits(sensor):
     # Data output control 1 register bit definition
@@ -485,7 +490,7 @@ def inv_androidSensor_to_control_bits(sensor):
     if sensor in lookup and lookup[sensor] != 0xFFFF:
         return lookup[sensor]
 
-    raise Exception('Sensor type not supported.')
+    raise DMPSensorNotSupported('Sensor type not supported.')
 
 # Determines which base sensor needs to be on
 INV_NEEDS_ACCEL_MASK = [
