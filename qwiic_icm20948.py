@@ -1179,6 +1179,12 @@ class QwiicIcm20948(object):
             ctrl = ctrl & 0x7F
         self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
+    def resetDMP(self):
+        self.setBank(0)
+        ctrl = self.readByte(self.AGB0_REG_USER_CTRL)
+        ctrl = ctrl | 1 << 3
+        self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
+
     def loadDMPFirmware(self):
         pass
 
@@ -1229,7 +1235,7 @@ class QwiicIcm20948(object):
         # true: set the I2C_SLV0_CTRL I2C_SLV0_BYTE_SW to byte-swap the data from the mag (copied from inv_icm20948_resume_akm)
         # result = i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_RSV2, 10, true, true, false, true, true);
         if not self.i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_RSV2, 10, True, True, False, True, True):
-            raise Exception('Failed to set up I2C_SLV0 to do the ten byte reading')
+            raise DMPInitFailure('Failed to set up I2C_SLV0 to do the ten byte reading')
 
         # We also need to set up I2C_SLV1 to do the Single Measurement triggering:
         # 1: use I2C_SLV1
@@ -1244,7 +1250,7 @@ class QwiicIcm20948(object):
         # AK09916_mode_single: tell I2C_SLV1 to write the Single Measurement command each sample
         # result = i2cControllerConfigurePeripheral(1, MAG_AK09916_I2C_ADDR, AK09916_REG_CNTL2, 1, false, true, false, false, false, AK09916_mode_single);
         if not self.i2cControllerConfigurePeripheral(1, MAG_AK09916_I2C_ADDR, AK09916_REG_CNTL2, 1, False, True, False, False, False, AK09916_mode_single):
-            raise Exception('Failed to set up I2C_SLV1 to do the Single Measurement triggering')
+            raise DMPInitFailure('Failed to set up I2C_SLV1 to do the Single Measurement triggering')
 
         # Set the I2C Master ODR configuration
         # It is not clear why we need to do this... But it appears to be essential! From the datasheet:
@@ -1483,7 +1489,7 @@ class QwiicIcm20948(object):
 
     def enableDMPSensor(self, sensor, enable = True):
         if not self.dmp:
-            raise Exception('DMP not properly initialized!')
+            raise DMPUninitialized('DMP not properly initialized!')
 
         android_sensor = sensor_type_2_android_sensor(sensor)
 
@@ -1520,12 +1526,10 @@ class QwiicIcm20948(object):
                 event_control = event_control | DMP_MOTION_EVENT_CONTROL_COMPASS_CALIBR
 
         # make sure chip is awake
-        if not self.sleep(False):
-            raise Exception('Could not wake up chip.')
+        self.sleep(False)
 
         # make sure chip is not in low power state
-        if not self.lowPower(False):
-            raise Exception('Could not bring out of low power state.')
+        self.lowPower(False)
 
         # Check if Accel, Gyro/Gyro_Calibr or Compass_Calibr/Quat9/GeoMag/Compass are to be enabled.
         # If they are then we need to request the accuracy data via header2.
@@ -1558,8 +1562,7 @@ class QwiicIcm20948(object):
         self.writeMems(MOTION_EVENT_CTL, event_control.to_bytes(2, byteorder='big'))
 
         # Put chip into low power state
-        if not self.lowPower(True):
-            raise Exception('Could not put chip into low power state.')
+        self.lowPower(True)
 
     def setDMPODRrate(self, reg, interval):
         # Set the ODR registers and clear the ODR counter
@@ -1572,15 +1575,13 @@ class QwiicIcm20948(object):
         # During run-time, if an ODR is changed, the corresponding rate counter must be reset.
         # To reset, write 2-byte {0,0} to DMP using keys below for a particular sensor:
         if not self.dmp:
-            raise Exception('DMP not properly initialized!')
+            raise DMPUninitialized('DMP not properly initialized!')
 
         # Make sure chip is awake
-        if not self.sleep(False):
-            raise Exception('Could not wake up chip.')
+        self.sleep(False)
 
         # Make sure chip is not in low power state
-        if not self.lowPower(False):
-            raise Exception('Could not take chip oout of lower power.')
+        self.lowPower(False)
 
         odr_reg_val = interval.to_bytes(2, byteorder='big')
         odr_count_zero = [0, 0]
@@ -1622,8 +1623,7 @@ class QwiicIcm20948(object):
             raise ValueError('Invalid register requested.')
 
         # Put chip into low power state
-        if not self.lowPower(True):
-            raise Exception('Could not put chip into low power state.')
+        self.lowPower(True)
 
     def readDMPdataFromFIFO(self):
         def getFIFOcount():
@@ -1639,14 +1639,14 @@ class QwiicIcm20948(object):
             if fifo_count < len:
                 fifo_count = getFIFOcount()
                 if fifo_count < len: # Bail if fifo count is still < len
-                    raise Exception('Not enough data available in FIFO.')
+                    raise DMPFIFOUnderflow('Not enough data available in FIFO.')
 
             fifo_count -= len
             self.setBank(0)
             return self.read(self.AGB0_REG_FIFO_R_W, len)
 
         if not self.dmp:
-            raise Exception('DMP not properly initialized!')
+            raise DMPUninitialized('DMP not properly initialized!')
 
         ret = {}
         fifo_count = 0

@@ -1,5 +1,22 @@
 from enum import IntEnum
 
+
+# define custom exceptions
+class DMPFIFOUnderflow(Exception):
+    """ Raised when the DMP FIFO does not contain enough data yet """
+    pass
+
+
+class DMPUninitialized(Exception):
+    """ Raised when a DMP method is used prior to initialization """
+    pass
+
+
+class DMPInitFailure(Exception):
+    """ Raised when an error occurs in DMP initialization """
+    pass
+
+
 DMP_START_ADDRESS = 0x1000
 DMP_MEM_BANK_SIZE = 256
 DMP_LOAD_START = 0x90
