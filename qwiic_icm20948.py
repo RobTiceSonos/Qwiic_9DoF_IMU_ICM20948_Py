@@ -55,6 +55,8 @@ from fcntl import F_EXLCK
 import qwiic_i2c
 import time
 
+from dmp_defines import *
+
 # Define the device name and I2C addresses. These are set in the class definition
 # as class variables, making them avilable without having to create a class instance.
 # This allows higher level logic to rapidly create a index of qwiic devices at
@@ -76,7 +78,7 @@ ICM_20948_Internal_Acc = (1 << 0)
 ICM_20948_Internal_Gyr = (1 << 1)
 ICM_20948_Internal_Mag = (1 << 2)
 ICM_20948_Internal_Tmp = (1 << 3)
-ICM_20948_Internal_Mst = (1 << 4) # I2C Master Ineternal
+ICM_20948_Internal_Mst = (1 << 4) # I2C Master Internal
 
 # Sample mode options
 ICM_20948_Sample_Mode_Continuous = 0x00
@@ -143,64 +145,6 @@ AK09916_REG_HZH = 0x16
 AK09916_REG_ST2 = 0x18
 AK09916_REG_CNTL2 = 0x31
 AK09916_REG_CNTL3 = 0x32
-
-DMP_START_ADDR = 4096
-
-# Accel FSR
-# The DMP scales accel raw data internally to align 1g as 2^25.
-# To do this and output hardware unit again as configured FSR, write 0x4000000 to ACC_SCALE DMP register, and write 0x40000 to ACC_SCALE2 DMP register.
-ACC_SCALE  = (30 * 16 + 0)  # 32-bit: Write accel scaling value for internal use
-ACC_SCALE2 = (79 * 16 + 4)  # 32-bit: Write accel scaling down value
-
-# Gyro FSR
-GYRO_FULLSCALE = (72 * 16 + 12)
-
-# gains
-ACCEL_FB_GAIN = (34 * 16)
-ACCEL_ONLY_GAIN = (16 * 16 + 12) # 32-bit: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
-GYRO_SF = (19 * 16) # 32-bit: gyro scaling factor
-
-# parameters for accel calibration
-ACCEL_ACCURACY = (97 * 16)
-ACCEL_CAL_RESET = (77 * 16)
-ACCEL_VARIANCE_THRESH = (93 * 16)
-ACCEL_CAL_RATE = (94 * 16 + 4) # 16-bit: 0 (225Hz, 112Hz, 56Hz)
-ACCEL_PRE_SENSOR_DATA = (97 * 16 + 4)
-ACCEL_COVARIANCE = (101 * 16 + 8)
-ACCEL_ALPHA_VAR = (91 * 16) # 32-bit: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
-ACCEL_A_VAR = (92 * 16) # 32-bit: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
-ACCEL_CAL_INIT = (94 * 16 + 2)
-ACCEL_CAL_SCALE_COVQ_IN_RANGE = (194 * 16)
-ACCEL_CAL_SCALE_COVQ_OUT_RANGE = (195 * 16)
-ACCEL_CAL_TEMPERATURE_SENSITIVITY = (194 * 16 + 4)
-ACCEL_CAL_TEMPERATURE_OFFSET_TRIM = (194 * 16 + 12)
-
-# Compass Cal params to be adjusted according to sampling rate
-CPASS_TIME_BUFFER = (112 * 16 + 14)
-CPASS_RADIUS_3D_THRESH_ANOMALY = (112 * 16 + 8)
-
-# mounting matrix: all 32-bit
-CPASS_MTX_00 = (23 * 16)  # Compass mount matrix and scale
-CPASS_MTX_01 = (23 * 16 + 4)
-CPASS_MTX_02 = (23 * 16 + 8)
-CPASS_MTX_10 = (23 * 16 + 12)
-CPASS_MTX_11 = (24 * 16)
-CPASS_MTX_12 = (24 * 16 + 4)
-CPASS_MTX_20 = (24 * 16 + 8)
-CPASS_MTX_21 = (24 * 16 + 12)
-CPASS_MTX_22 = (25 * 16)
-
-# B2S mounting matrix
-B2S_MTX_00 = (208 * 16)
-B2S_MTX_01 = (208 * 16 + 4)
-B2S_MTX_02 = (208 * 16 + 8)
-B2S_MTX_10 = (208 * 16 + 12)
-B2S_MTX_11 = (209 * 16)
-B2S_MTX_12 = (209 * 16 + 4)
-B2S_MTX_20 = (209 * 16 + 8)
-B2S_MTX_21 = (209 * 16 + 12)
-B2S_MTX_22 = (210 * 16)
-
 
 # define the class that encapsulates the device being created. All information associated with this
 # device is encapsulated by this class. The device class should be the only value exported
@@ -814,7 +758,6 @@ class QwiicIcm20948(object):
         else:
             return False
 
-
     # ----------------------------------
     # i2cMasterPassthrough()
     #
@@ -1168,6 +1111,7 @@ class QwiicIcm20948(object):
             :rtype: bool
 
         """
+        self.dmp = dmp
         # are we who we need to be?
         self.setBank(0)
         chipID = self.readByte(self.AGB0_REG_WHO_AM_I)
@@ -1202,12 +1146,13 @@ class QwiicIcm20948(object):
 
         self.startupMagnetometer()
 
-        if dmp:
+        if self.dmp:
+            self.dmp_sensor_list = set()
             self.initializeDMP()
 
         return True
 
-    def enableFIFO(self, enable):
+    def enableFIFO(self, enable=True):
         self.setBank(0)
         ctrl = self.readByte(self.AGB0_REG_USER_CTRL)
         if enable:
@@ -1237,11 +1182,36 @@ class QwiicIcm20948(object):
     def loadDMPFirmware(self):
         pass
 
-    def setDMPstartAddress(self, addr):
+    def setDMPstartAddress(self, addr = DMP_START_ADDRESS):
         pass
 
     def writeDMPmems(self, reg, data):
         pass
+
+    def writeMems(self, reg, data):
+        bytesWritten = 0
+        length = len(data)
+
+        self.setBank(0)
+        self.writeByte(self.AGB0_REG_MEM_BANK_SEL, reg >> 8)
+
+        while bytesWritten < length:
+            lstartaddr = reg & 0xFF
+            # Sets the starting read or write address for the selected memory, inside of the selected page (see MEM_SEL Register).
+            # Contents are changed after read or write of the selected memory.
+            # This register must be written prior to each access to initialize the register to the proper starting address.
+            # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
+            self.writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
+
+            if length - bytesWritten <= INV_MAX_SERIAL_WRITE:
+                thislen = length - bytesWritten
+            else:
+                thisLen = INV_MAX_SERIAL_WRITE
+
+            # Write data
+            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
+            bytesWritten += thisLen
+            reg += thisLen
 
     def setGyroSF(self, div, level):
         pass
@@ -1368,10 +1338,7 @@ class QwiicIcm20948(object):
 
         #  Setup DMP start address through PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
-        dmp_addr = DMP_START_ADDR
-        self.setBank(2)
-        self.writeByte(self.AGB2_REG_PRGM_START_ADDRH, dmp_addr >> 8)
-        self.writeByte(self.AGB2_REG_PRGM_START_ADDRL, dmp_addr & 0xFF)
+        self.setDMPstartAddress()
 
         # // Now load the DMP firmware
         # result = loadDMPFirmware(); if (result > worstResult) worstResult = result;
@@ -1379,7 +1346,7 @@ class QwiicIcm20948(object):
 
         # // Write the 2 byte Firmware Start Value to ICM PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
-        self.setDMPstartAddress(DMP_START_ADDR)
+        self.setDMPstartAddress()
 
         # // Set the Hardware Fix Disable register to 0x48
         # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
@@ -1480,42 +1447,336 @@ class QwiicIcm20948(object):
         # //  250dps : 2^25
         # const unsigned char gyroFullScale[4] = {0x10, 0x00, 0x00, 0x00}; // 2000dps : 2^28
         # result = writeDMPmems(GYRO_FULLSCALE, 4, &gyroFullScale[0]); if (result > worstResult) worstResult = result;
-        gyroFullScale = [0x10, 0x00, 0x00, 0x00]
-        self.writeDMPmems(GYRO_FULLSCALE, gyroFullScale)
+        self.writeDMPmems(GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00])
 
         # // Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
         # const unsigned char accelOnlyGain[4] = {0x03, 0xA4, 0x92, 0x49}; // 56Hz
         # //const unsigned char accelOnlyGain[4] = {0x00, 0xE8, 0xBA, 0x2E}; // 225Hz
         # //const unsigned char accelOnlyGain[4] = {0x01, 0xD1, 0x74, 0x5D}; // 112Hz
         # result = writeDMPmems(ACCEL_ONLY_GAIN, 4, &accelOnlyGain[0]); if (result > worstResult) worstResult = result;
-        accelOnlyGain = [0x03, 0xA4, 0x92, 0x49]
-        self.writeDMPmems(ACCEL_ONLY_GAIN, accelOnlyGain)
+        self.writeDMPmems(ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49])
 
         # // Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
         # const unsigned char accelAlphaVar[4] = {0x34, 0x92, 0x49, 0x25}; // 56Hz
         # //const unsigned char accelAlphaVar[4] = {0x3D, 0x27, 0xD2, 0x7D}; // 225Hz
         # //const unsigned char accelAlphaVar[4] = {0x3A, 0x49, 0x24, 0x92}; // 112Hz
         # result = writeDMPmems(ACCEL_ALPHA_VAR, 4, &accelAlphaVar[0]); if (result > worstResult) worstResult = result;
-        accelAlphaVar = [0x34, 0x92, 0x49, 0x25]
-        self.writeDMPmems(ACCEL_ALPHA_VAR, accelAlphaVar)
+        self.writeDMPmems(ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25])
 
         # // Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
         # const unsigned char accelAVar[4] = {0x0B, 0x6D, 0xB6, 0xDB}; // 56Hz
         # //const unsigned char accelAVar[4] = {0x02, 0xD8, 0x2D, 0x83}; // 225Hz
         # //const unsigned char accelAVar[4] = {0x05, 0xB6, 0xDB, 0x6E}; // 112Hz
         # result = writeDMPmems(ACCEL_A_VAR, 4, &accelAVar[0]); if (result > worstResult) worstResult = result;
-        accelAVar = [0x0B, 0x6D, 0xB6, 0xDB]
-        self.writeDMPmems(ACCEL_A_VAR, accelAVar)
+        self.writeDMPmems(ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
 
         # // Configure the Accel Cal Rate
         # const unsigned char accelCalRate[4] = {0x00, 0x00}; // Value taken from InvenSense Nucleo example
         # result = writeDMPmems(ACCEL_CAL_RATE, 2, &accelCalRate[0]); if (result > worstResult) worstResult = result;
-        accelCalRate = [0x00, 0x00]
-        self.writeDMPmems(ACCEL_CAL_RATE, accelCalRate)
+        self.writeDMPmems(ACCEL_CAL_RATE, [0x00, 0x00])
 
         # // Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
         # // Let's set the Compass Time Buffer to 69 (Hz).
         # const unsigned char compassRate[2] = {0x00, 0x45}; // 69Hz
         # result = writeDMPmems(CPASS_TIME_BUFFER, 2, &compassRate[0]); if (result > worstResult) worstResult = result;
-        compassRate = [0x00, 0x45]
-        self.writeDMPmems(CPASS_TIME_BUFFER, compassRate)
+        self.writeDMPmems(CPASS_TIME_BUFFER, [0x00, 0x45])
+
+    def enableDMPSensor(self, sensor, enable = True):
+        if not self.dmp:
+            raise Exception('DMP not properly initialized!')
+
+        android_sensor = sensor_type_2_android_sensor(sensor)
+
+        if enable:
+            if android_sensor in self.dmp_sensor_list:
+                # trying to enable something already enabled
+                return
+            else:
+                self.dmp_sensor_list.add(android_sensor)
+        else:
+            if android_sensor in self.dmp_sensor_list:
+                self.dmp_sensor_list.remove(android_sensor)
+            else:
+                # Trying to remove something that wasn't enabled anyway
+                return
+
+        data_out = 0
+        data_rdy_status = 0
+        event_control = 0
+        for s in self.dmp_sensor_list:
+            bits = inv_androidSensor_to_control_bits(s)
+            data_out = data_out | bits
+
+            if s in INV_NEEDS_ACCEL_MASK:
+                data_rdy_status = data_rdy_status | DMP_DATA_READY_ACCEL
+                event_control = event_control | DMP_MOTION_EVENT_CONTROL_ACCEL_CALIBR
+
+            if s in INV_NEEDS_GYRO_MASK:
+                data_rdy_status = data_rdy_status | DMP_DATA_READY_GYRO
+                event_control = event_control | DMP_MOTION_EVENT_CONTROL_GYRO_CALIBR
+
+            if s in INV_NEEDS_COMPASS_MASK:
+                data_rdy_status = data_rdy_status | DMP_DATA_READY_SECONDARY_COMPASS
+                event_control = event_control | DMP_MOTION_EVENT_CONTROL_COMPASS_CALIBR
+
+        # make sure chip is awake
+        if not self.sleep(False):
+            raise Exception('Could not wake up chip.')
+
+        # make sure chip is not in low power state
+        if not self.lowPower(False):
+            raise Exception('Could not bring out of low power state.')
+
+        # Check if Accel, Gyro/Gyro_Calibr or Compass_Calibr/Quat9/GeoMag/Compass are to be enabled.
+        # If they are then we need to request the accuracy data via header2.
+        data_out2 = 0
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_ACCEL:
+            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_ACCEL_ACCURACY
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_GYRO_CALIBR:
+            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_GYRO_ACCURACY
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_COMPASS_CALIBR:
+            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_COMPASS_ACCURACY
+
+        # Write the sensor control bits into memory address DATA_OUT_CTL1
+        self.writeMems(DATA_OUT_CTL1, data_out.to_bytes(2, byteorder='big'))
+
+        # Write the 'header2' sensor control bits into memory address DATA_OUT_CTL2
+        self.writeMems(DATA_OUT_CTL2, data_out2.to_bytes(2, byteorder='big'))
+
+        # Set the DATA_RDY_STATUS register
+        self.writeMems(DATA_RDY_STATUS, data_rdy_status.to_bytes(2, byteorder='big'))
+
+        # Check which extra bits need to be set in the Motion Event Control register
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_QUAT9:
+            event_control = event_control | DMP_MOTION_EVENT_CONTROL_9AXIS
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_STEP_DETECTOR:
+            event_control = event_control | DMP_MOTION_EVENT_CONTROL_PEDOMETER_INTERRUPT
+        if data_out & DMP_DATA_OUTPUT_CONTROL_1_GEOMAG:
+            event_control = event_control | DMP_MOTION_EVENT_CONTROL_GEOMAG
+
+        # Set the MOTION_EVENT_CTL register
+        self.writeMems(MOTION_EVENT_CTL, event_control.to_bytes(2, byteorder='big'))
+
+        # Put chip into low power state
+        if not self.lowPower(True):
+            raise Exception('Could not put chip into low power state.')
+
+    def setDMPODRrate(self, reg, interval):
+        # Set the ODR registers and clear the ODR counter
+
+        # In order to set an ODR for a given sensor data, write 2-byte value to DMP using key defined above for a particular sensor.
+        # Setting value can be calculated as follows:
+        # Value = (DMP running rate (225Hz) / ODR ) - 1
+        # E.g. For a 25Hz ODR rate, value= (225/25) -1 = 8.
+
+        # During run-time, if an ODR is changed, the corresponding rate counter must be reset.
+        # To reset, write 2-byte {0,0} to DMP using keys below for a particular sensor:
+        if not self.dmp:
+            raise Exception('DMP not properly initialized!')
+
+        # Make sure chip is awake
+        if not self.sleep(False):
+            raise Exception('Could not wake up chip.')
+
+        # Make sure chip is not in low power state
+        if not self.lowPower(False):
+            raise Exception('Could not take chip oout of lower power.')
+
+        odr_reg_val = interval.to_bytes(2, byteorder='big')
+        odr_count_zero = [0, 0]
+
+        if reg == DMP_ODR_REG_CPASS_CALIBR:
+            self.writeMems(ODR_CPASS_CALIBR, odr_reg_val)
+            self.writeMems(ODR_CNTR_CPASS_CALIBR, odr_count_zero)
+        elif reg == DMP_ODR_REG_GYRO_CALIBR:
+            self.writeMems(ODR_GYRO_CALIBR, odr_reg_val)
+            self.writeMems(ODR_CNTR_GYRO_CALIBR, odr_count_zero)
+        elif reg == DMP_ODR_REG_PRESSURE:
+            self.writeMems(ODR_PRESSURE, odr_reg_val)
+            self.writeMems(ODR_CNTR_PRESSURE, odr_count_zero)
+        elif reg == DMP_ODR_REG_GEOMAG:
+            self.writeMems(ODR_GEOMAG, odr_reg_val)
+            self.writeMems(ODR_CNTR_GEOMAG, odr_count_zero)
+        elif reg == DMP_ODR_REG_PQUAT6:
+            self.writeMems(ODR_PQUAT6, odr_reg_val)
+            self.writeMems(ODR_CNTR_PQUAT6, odr_count_zero)
+        elif reg == DMP_ODR_REG_QUAT9:
+            self.writeMems(ODR_QUAT9, odr_reg_val)
+            self.writeMems(ODR_CNTR_QUAT9, odr_count_zero)
+        elif reg == DMP_ODR_REG_QUAT6:
+            self.writeMems(ODR_QUAT6, odr_reg_val)
+            self.writeMems(ODR_CNTR_QUAT6, odr_count_zero)
+        elif reg == DMP_ODR_REG_ALS:
+            self.writeMems(ODR_ALS, odr_reg_val)
+            self.writeMems(ODR_CNTR_ALS, odr_count_zero)
+        elif reg == DMP_ODR_REG_CPASS:
+            self.writeMems(ODR_CPASS, odr_reg_val)
+            self.writeMems(ODR_CNTR_CPASS, odr_count_zero)
+        elif reg == DMP_ODR_REG_GYRO:
+            self.writeMems(ODR_GYRO, odr_reg_val)
+            self.writeMems(ODR_CNTR_GYRO, odr_count_zero)
+        elif reg == DMP_ODR_REG_ACCEL:
+            self.writeMems(ODR_ACCEL, odr_reg_val)
+            self.writeMems(ODR_CNTR_ACCEL, odr_count_zero)
+        else:
+            raise ValueError('Invalid register requested.')
+
+        # Put chip into low power state
+        if not self.lowPower(True):
+            raise Exception('Could not put chip into low power state.')
+
+    def readDMPdataFromFIFO(self):
+        def getFIFOcount():
+            self.setBank(0)
+            # Datasheet says "FIFO_CNT[12:8]"
+            ctrlh = self.readByte(self.AGB0_REG_FIFO_COUNT_H) & 0x1F
+            ctrll = self.readByte(self.AGB0_REG_FIFO_COUNT_L)
+
+            return (ctrlh << 8) | ctrll
+
+        def readFIFO(fifo_count, len):
+            # Check if we need to read the FIFO count again
+            if fifo_count < len:
+                fifo_count = getFIFOcount()
+                if fifo_count < len: # Bail if fifo count is still < len
+                    raise Exception('Not enough data available in FIFO.')
+
+            fifo_count -= len
+            self.setBank(0)
+            return self.read(self.AGB0_REG_FIFO_R_W, len)
+
+        if not self.dmp:
+            raise Exception('DMP not properly initialized!')
+
+        ret = {}
+        fifo_count = 0
+
+        # Read the header (2 bytes)
+        header = int.from_bytes(readFIFO(fifo_count, ICM_20948_DMP_HEADER_BYTES), byteorder='big')
+
+        # If the header indicates a header2 is present then read that now
+        header2 = None
+        if header & DMP_HEADER_BITMAP_HEADER2:
+            header2 = int.from_bytes(readFIFO(fifo_count, ICM_20948_DMP_HEADER2_BYTES), byteorder='big')
+
+        if header & DMP_HEADER_BITMAP_ACCEL:
+            data = readFIFO(fifo_count, ICM_20948_DMP_RAW_ACCEL_BYTES)
+            ret['raw_acc'] = {
+                'X': int.from_bytes(data[:2], byteorder='big'),
+                'Y': int.from_bytes(data[2:4], byteorder='big'),
+                'Z': int.from_bytes(data[4:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_GYRO:
+            data = readFIFO(fifo_count, ICM_20948_DMP_RAW_GYRO_BYTES + ICM_20948_DMP_GYRO_BIAS_BYTES)
+            ret['raw_gyro'] = {
+                'X': int.from_bytes(data[:2], byteorder='big'),
+                'Y': int.from_bytes(data[2:4], byteorder='big'),
+                'Z': int.from_bytes(data[4:6], byteorder='big'),
+                'biasX': int.from_bytes(data[6:8], byteorder='big'),
+                'biasY': int.from_bytes(data[8:10], byteorder='big'),
+                'biasZ': int.from_bytes(data[10:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_COMPASS:
+            data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_BYTES)
+            ret['raw_compass'] = {
+                'X': int.from_bytes(data[:2], byteorder='big'),
+                'Y': int.from_bytes(data[2:4], byteorder='big'),
+                'Z': int.from_bytes(data[4:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_ALS:
+            data = readFIFO(fifo_count, ICM_20948_DMP_ALS_BYTES)
+            ret['als'] = {
+                'Ch0DATA': int.from_bytes(data[1:3], byteorder='big'),
+                'Ch1DATA': int.from_bytes(data[3:5], byteorder='big'),
+                'PDATA': data[7],
+            }
+
+        if header & DMP_HEADER_BITMAP_QUAT6:
+            data = readFIFO(fifo_count, ICM_20948_DMP_QUAT6_BYTES)
+            ret['quat6'] = {
+                'Q1': int.from_bytes(data[:4], byteorder='big'),
+                'Q2': int.from_bytes(data[4:8], byteorder='big'),
+                'Q3': int.from_bytes(data[8:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_QUAT9:
+            data = readFIFO(fifo_count, ICM_20948_DMP_QUAT9_BYTES)
+            ret['quat9'] = {
+                'Q1': int.from_bytes(data[:4], byteorder='big'),
+                'Q2': int.from_bytes(data[4:8], byteorder='big'),
+                'Q3': int.from_bytes(data[8:12], byteorder='big'),
+                'Accuracy': int.from_bytes(data[12:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_PQUAT6:
+            data = readFIFO(fifo_count, ICM_20948_DMP_PQUAT6_BYTES)
+            ret['pquat6'] = {
+                'Q1': int.from_bytes(data[:2], byteorder='big'),
+                'Q2': int.from_bytes(data[2:4], byteorder='big'),
+                'Q3': int.from_bytes(data[4:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_GEOMAG:
+            data = readFIFO(fifo_count, ICM_20948_DMP_GEOMAG_BYTES)
+            ret['geomag'] = {
+                'Q1': int.from_bytes(data[:4], byteorder='big'),
+                'Q2': int.from_bytes(data[4:8], byteorder='big'),
+                'Q3': int.from_bytes(data[8:12], byteorder='big'),
+                'Accuracy': int.from_bytes(data[12:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_PRESSURE:
+            data = readFIFO(fifo_count, ICM_20948_DMP_PRESSURE_BYTES)
+            ret['pressure'] = int.from_bytes(data[:3], byteorder='big')
+            ret['temperature'] = int.from_bytes(data[3:], byteorder='big')
+
+        if header & DMP_HEADER_BITMAP_COMPASS_CALIBR:
+            data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_CALIBR_BYTES)
+            ret['compass_calibration'] = {
+                'X': int.from_bytes(data[:4], byteorder='big'),
+                'Y': int.from_bytes(data[4:8], byteorder='big'),
+                'Z': int.from_bytes(data[8:], byteorder='big'),
+            }
+
+        if header & DMP_HEADER_BITMAP_STEP_DETECTOR:
+            data = readFIFO(fifo_count, ICM_20948_DMP_STEP_DETECTOR_BYTES)
+            ret['step_detector'] = int.from_bytes(data, byteorder='big')
+
+        # Now check for header2 features
+        if header2:
+            if header2 & DMP_HEADER2_BITMAP_ACCEL_ACCURACY:
+                data = readFIFO(fifo_count, ICM_20948_DMP_ACCEL_ACCURACY_BYTES)
+                ret['accel_accuracy'] = int.from_bytes(data, byteorder='big')
+
+            if header2 & DMP_HEADER2_BITMAP_GYRO_ACCURACY:
+                data = readFIFO(fifo_count, ICM_20948_DMP_GYRO_ACCURACY_BYTES)
+                ret['gyro_accuracy'] = int.from_bytes(data, byteorder='big')
+
+            if header2 & DMP_HEADER2_BITMAP_COMPASS_ACCURACY:
+                data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_ACCURACY_BYTES)
+                ret['compass_accuracy'] = int.from_bytes(data, byteorder='big')
+
+            if header2 & DMP_HEADER2_BITMAP_PICKUP:
+                data = readFIFO(fifo_count, ICM_20948_DMP_PICKUP_BYTES)
+                ret['pickup'] = int.from_bytes(data, byteorder='big')
+
+            if header2 & DMP_HEADER2_BITMAP_ACTIVITY_RECOG:
+                data = readFIFO(fifo_count, ICM_20948_DMP_ACTIVITY_RECOGNITION_BYTES)
+                ret['activity_recog'] = {
+                    'state_start': data[0],
+                    'state_end': data[1],
+                    'timestamp': int.from_bytes(data[2:], byteorder='big'),
+                }
+
+            if header2 & DMP_HEADER2_BITMAP_SECONDARY_ON_OFF:
+                data = readFIFO(fifo_count, ICM_20948_DMP_SECONDARY_ON_OFF_BYTES)
+                ret['secondary_on_off'] = int.from_bytes(data, byteorder='big')
+
+            # Finally, extract the footer (gyro count)
+            data = readFIFO(fifo_count, ICM_20948_DMP_FOOTER_BYTES)
+            ret['footer'] = int.from_bytes(data, byteorder='big')
+
+        return ret
