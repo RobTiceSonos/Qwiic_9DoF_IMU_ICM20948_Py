@@ -1,3 +1,4 @@
+import ctypes
 from enum import IntEnum
 
 
@@ -626,28 +627,6 @@ DMP_HEADER2_BITMAP_GYRO_ACCURACY = 0x2000
 DMP_HEADER2_BITMAP_ACCEL_ACCURACY = 0x4000
 
 
-#   typedef struct # DMP Activity Recognition data
-#   {
-#     uint8_t Drive : 1;
-#     uint8_t Walk : 1;
-#     uint8_t Run : 1;
-#     uint8_t Bike : 1;
-#     uint8_t Tilt : 1;
-#     uint8_t Still : 1;
-#     uint8_t reserved : 2;
-#   } icm_20948_DMP_Activity_t;
-
-#   typedef struct # DMP Secondary On/Off data
-#   {
-#     uint16_t Gyro_Off : 1;
-#     uint16_t Gyro_On : 1;
-#     uint16_t Compass_Off : 1;
-#     uint16_t Compass_On : 1;
-#     uint16_t Proximity_Off : 1;
-#     uint16_t Proximity_On : 1;
-#     uint16_t reserved : 10;
-#   } icm_20948_DMP_Secondary_On_Off_t;
-
 ICM_20948_DMP_HEADER_BYTES = 2
 ICM_20948_DMP_HEADER2_BYTES = 2
 ICM_20948_DMP_RAW_ACCEL_BYTES = 6
@@ -676,44 +655,69 @@ ICM_20948_DMP_MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from t
 
 INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data lines
 
-#   typedef struct
-#   {
-#     uint16_t header;
-#     uint16_t header2;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Raw_Accel_Bytes];
-#       struct
-#       {
-#         int16_t X;
-#         int16_t Y;
-#         int16_t Z;
-#       } Data;
-#     } Raw_Accel;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Raw_Gyro_Bytes + icm_20948_DMP_Gyro_Bias_Bytes];
-#       struct
-#       {
-#         int16_t X;
-#         int16_t Y;
-#         int16_t Z;
-#         int16_t BiasX;
-#         int16_t BiasY;
-#         int16_t BiasZ;
-#       } Data;
-#     } Raw_Gyro;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Compass_Bytes];
-#       struct
-#       {
-#         int16_t X;
-#         int16_t Y;
-#         int16_t Z;
-#       } Data;
-#     } Compass;
-#     uint8_t ALS[icm_20948_DMP_ALS_Bytes]; # Byte[0]: Dummy, Byte[2:1]: Ch0DATA, Byte[4:3]: Ch1DATA, Byte[6:5]: PDATA, Byte[7]: Dummy
+
+class BaseStruct(ctypes.Structure):
+    _pack_ = 1
+
+    def asdict(self):
+        result = {}
+        for field, _ in self._fields_:
+            value = getattr(self, field)
+            # if the type is not a primitive and it evaluates to False ...
+            if (type(value) not in [int, long, float, bool]) and not bool(value):
+                # it's a null pointer
+                value = None
+            elif hasattr(value, "_length_") and hasattr(value, "_type_"):
+                # Probably an array
+                value = list(value)
+            elif hasattr(value, "_fields_"):
+                # Probably another struct
+                value = self.asdict(value)
+            result[field] = value
+        return result
+
+
+class RawAccel(BaseStruct):
+    mask = DMP_HEADER_BITMAP_ACCEL
+    layout = '!hhh'
+    _fields_ = [
+        ('X', ctypes.c_int16),
+        ('Y', ctypes.c_int16),
+        ('Z', ctypes.c_int16),
+    ]
+
+
+class RawGyro(BaseStruct):
+    mask = DMP_HEADER_BITMAP_GYRO
+    layout = '!hhhhhh'
+    _fields_ = [
+        ('X', ctypes.c_int16),
+        ('Y', ctypes.c_int16),
+        ('Z', ctypes.c_int16),
+        ('BiasX', ctypes.c_int16),
+        ('BiasY', ctypes.c_int16),
+        ('BiasZ', ctypes.c_int16),
+    ]
+
+class Compass(BaseStruct):
+    mask = DMP_HEADER_BITMAP_COMPASS
+    layout = '!hhh'
+    _fields_ = [
+        ('X', ctypes.c_int16),
+        ('Y', ctypes.c_int16),
+        ('Z', ctypes.c_int16),
+    ]
+
+
+class ALS(BaseStruct):
+    mask = DMP_HEADER_BITMAP_ALS
+    layout = '!xHHHx'
+    _fields_ = [
+        ('Ch0DATA', ctypes.c_int16),
+        ('Ch1DATA', ctypes.c_int16),
+        ('PDATA', ctypes.c_int16),
+    ]
+
 #     # The 6-Axis and 9-axis Quaternion outputs each consist of 12 bytes of data.
 #     # These 12 bytes in turn consists of three 4-byte elements.
 #     # 9-axis quaternion data and Geomag rv is always followed by 2-bytes of heading accuracy, hence the size of Quat9 and Geomag data size in the FIFO is 14 bytes.
@@ -723,75 +727,125 @@ INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data 
 #     # Q0 value is computed from this equation: Q20 + Q21 + Q22 + Q23 = 1.
 #     # In case of drift, the sum will not add to 1, therefore, quaternion data need to be corrected with right bias values.
 #     # The quaternion data is scaled by 2^30.
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Quat6_Bytes];
-#       struct
-#       {
-#         int32_t Q1;
-#         int32_t Q2;
-#         int32_t Q3;
-#       } Data;
-#     } Quat6;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Quat9_Bytes];
-#       struct
-#       {
-#         int32_t Q1;
-#         int32_t Q2;
-#         int32_t Q3;
-#         int16_t Accuracy;
-#       } Data;
-#     } Quat9;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_PQuat6_Bytes];
-#       struct
-#       {
-#         int16_t Q1;
-#         int16_t Q2;
-#         int16_t Q3;
-#       } Data;
-#     } PQuat6;
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Geomag_Bytes];
-#       struct
-#       {
-#         int32_t Q1;
-#         int32_t Q2;
-#         int32_t Q3;
-#         int16_t Accuracy;
-#       } Data;
-#     } Geomag;
-#     uint8_t Pressure[6]; # Byte [2:0]: Pressure data, Byte [5:3]: Temperature data
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Gyro_Calibr_Bytes];
-#       struct
-#       {
-#         int32_t X;
-#         int32_t Y;
-#         int32_t Z;
-#       } Data;
-#     } Gyro_Calibr; # Hardware unit scaled by 2^15
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Compass_Calibr_Bytes];
-#       struct
-#       {
-#         int32_t X;
-#         int32_t Y;
-#         int32_t Z;
-#       } Data;
-#     } Compass_Calibr;             # The unit is uT scaled by 2^16
-#     uint32_t Pedometer_Timestamp; # Timestamp as DMP cycle
-#     uint16_t Accel_Accuracy;      # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
-#     uint16_t Gyro_Accuracy;       # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
-#     uint16_t Compass_Accuracy;    # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
-#     uint16_t Fsync_Delay_Time;    # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
-#     uint16_t Pickup;              # The value “2” indicates pick up is detected.
+
+class Quat6(BaseStruct):
+    mask = DMP_HEADER_BITMAP_QUAT6
+    layout = '!iii'
+    _fields_ = [
+        ('Q1', ctypes.c_int32),
+        ('Q2', ctypes.c_int32),
+        ('Q3', ctypes.c_int32),
+    ]
+
+
+class Quat9(BaseStruct):
+    mask = DMP_HEADER_BITMAP_QUAT9
+    layout = '!iiih'
+    _fields_ = [
+        ('Q1', ctypes.c_int32),
+        ('Q2', ctypes.c_int32),
+        ('Q3', ctypes.c_int32),
+        ('Accuracy', ctypes.c_int16),
+    ]
+
+
+class PQuat6(BaseStruct):
+    mask = DMP_HEADER_BITMAP_PQUAT6
+    layout = '!iii'
+    _fields_ = [
+        ('Q1', ctypes.c_int32),
+        ('Q2', ctypes.c_int32),
+        ('Q3', ctypes.c_int32),
+    ]
+
+
+class Geomag(BaseStruct):
+    mask = DMP_HEADER_BITMAP_GEOMAG
+    layout = '!iiih'
+    _fields_ = [
+        ('Q1', ctypes.c_int32),
+        ('Q2', ctypes.c_int32),
+        ('Q3', ctypes.c_int32),
+        ('Accuracy', ctypes.c_int16),
+    ]
+
+
+class Pressure(BaseStruct):
+    mask = DMP_HEADER_BITMAP_PRESSURE
+    layout = '!s3s3'
+    _fields_ = [
+        ('Pressure', ctypes.c_uint8 * 3),
+        ('Temperature', ctypes.c_uint8 * 3),
+    ]
+
+
+class Gyro_Calibr(BaseStruct):
+    mask = DMP_HEADER_BITMAP_GYRO_CALIBR
+    layout = '!iii'
+    _fields_ = [
+        ('X', ctypes.c_int32), # Hardware unit scaled by 2^15
+        ('Y', ctypes.c_int32),
+        ('Z', ctypes.c_int32),
+    ]
+
+
+class Compass_Calibr(BaseStruct):
+    mask = DMP_HEADER_BITMAP_COMPASS_CALIBR
+    layout = '!iii'
+    _fields_ = [
+        ('X', ctypes.c_int32), # The unit is uT scaled by 2^16
+        ('Y', ctypes.c_int32),
+        ('Z', ctypes.c_int32),
+    ]
+
+
+class Pedometer_Timestamp(BaseStruct):
+    mask = DMP_HEADER_BITMAP_STEP_DETECTOR
+    layout = '!I'
+    _fields_ = [
+        ('Timestamp', ctypes.c_uint32), # Timestamp as DMP cycle
+    ]
+
+
+class Accel_Accuracy(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_ACCEL_ACCURACY
+    layout = '!H'
+    _fields_ = [
+        ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
+    ]
+
+
+class Gyro_Accuracy(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_GYRO_ACCURACY
+    layout = '!H'
+    _fields_ = [
+        ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
+    ]
+
+
+class Compass_Accuracy(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_COMPASS_ACCURACY
+    layout = '!H'
+    _fields_ = [
+        ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
+    ]
+
+
+class Fsync_Delay_Time(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_FSYNC
+    layout = '!H'
+    _fields_ = [
+        ('Delay', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
+    ]
+
+
+class Pickup(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_PICKUP
+    layout = '!H'
+    _fields_ = [
+        ('Value', ctypes.c_uint16), # The value “2” indicates pick up is detected.
+    ]
+
 #     # Activity Recognition data
 #     # The data include Start and End states, and timestamp as DMP cycle.
 #     # Byte [0]: State-Start, Byte [1]: State-End, Byte [5:2]: timestamp.
@@ -802,16 +856,16 @@ INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data 
 #     # Bike: 0x08
 #     # Tilt: 0x10
 #     # Still: 0x20
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Activity_Recognition_Bytes];
-#       struct
-#       {
-#         icm_20948_DMP_Activity_t State_Start;
-#         icm_20948_DMP_Activity_t State_End;
-#         uint32_t Timestamp;
-#       } Data;
-#     } Activity_Recognition;
+
+class Activity_Recognition(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_ACTIVITY_RECOG
+    layout = '!BBI'
+    _fields_ = [
+        ('State_Start', ctypes.c_uint8)
+        ('State_End', ctypes.c_uint8),
+        ('Timestamp', ctypes.c_uint32),
+    ]
+
 #     # Secondary On/Off data
 #     # BAC algorithm requires sensors on/off through FIFO data to detect activities effectively and save power.
 #     # The driver is expected to control sensors accordingly.
@@ -822,11 +876,42 @@ INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data 
 #     # Compass On: 0x08
 #     # Proximity Off: 0x10
 #     # Proximity On: 0x20
-#     union
-#     {
-#       uint8_t Bytes[icm_20948_DMP_Secondary_On_Off_Bytes];
-#       icm_20948_DMP_Secondary_On_Off_t Sensors;
-#     } Secondary_On_Off;
-#     uint16_t Footer; # Gyro count?
-#   } icm_20948_DMP_data_t;
 
+class Secondary_On_Off(BaseStruct):
+    mask = DMP_HEADER2_BITMAP_SECONDARY_ON_OFF
+    layout = '!H'
+    _fields_ = [
+        ('Sensors', ctypes.c_uint16),
+    ]
+
+
+class Footer(BaseStruct):
+    layout = '!H'
+    _fields_ = [
+        ('footer', ctypes.c_uint16),
+    ]
+
+HEADER_SENSORS = [
+    RawAccel,
+    RawGyro,
+    Compass,
+    ALS,
+    Quat6,
+    Quat9,
+    PQuat6,
+    Geomag,
+    Pressure,
+    # Gyro_Calibr,
+    Compass_Calibr,
+    Pedometer_Timestamp,
+]
+
+HEADER2_SENSORS = [
+    Accel_Accuracy,
+    Gyro_Accuracy,
+    Compass_Accuracy,
+    # Fsync_Delay_Time,
+    Pickup,
+    Activity_Recognition,
+    Secondary_On_Off,
+]

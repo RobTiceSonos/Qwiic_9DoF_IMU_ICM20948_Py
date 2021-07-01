@@ -53,6 +53,7 @@ New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.s
 
 from fcntl import F_EXLCK
 import qwiic_i2c
+from struct import unpack
 import time
 
 from dmp_defines import *
@@ -1626,6 +1627,9 @@ class QwiicIcm20948(object):
         self.lowPower(True)
 
     def readDMPdataFromFIFO(self):
+        ret = {}
+        fifo_count = 0
+
         def getFIFOcount():
             self.setBank(0)
             # Datasheet says "FIFO_CNT[12:8]"
@@ -1634,7 +1638,7 @@ class QwiicIcm20948(object):
 
             return (ctrlh << 8) | ctrll
 
-        def readFIFO(fifo_count, len):
+        def readFIFO(len):
             # Check if we need to read the FIFO count again
             if fifo_count < len:
                 fifo_count = getFIFOcount()
@@ -1645,138 +1649,30 @@ class QwiicIcm20948(object):
             self.setBank(0)
             return self.read(self.AGB0_REG_FIFO_R_W, len)
 
+        def processSensors(header, sensor_list):
+            for s in sensor_list:
+                if header & s.mask:
+                    raw = readFIFO(fifo_count, ctypes.sizeof(s))
+                    data = s(*unpack(s.layout, raw))
+                    ret[s.__name__] = data.asdict()
+
         if not self.dmp:
             raise DMPUninitialized('DMP not properly initialized!')
 
-        ret = {}
-        fifo_count = 0
-
         # Read the header (2 bytes)
-        header = int.from_bytes(readFIFO(fifo_count, ICM_20948_DMP_HEADER_BYTES), byteorder='big')
+        header = int.from_bytes(readFIFO(ICM_20948_DMP_HEADER_BYTES), byteorder='big')
 
         # If the header indicates a header2 is present then read that now
         header2 = None
         if header & DMP_HEADER_BITMAP_HEADER2:
-            header2 = int.from_bytes(readFIFO(fifo_count, ICM_20948_DMP_HEADER2_BYTES), byteorder='big')
+            header2 = int.from_bytes(readFIFO(ICM_20948_DMP_HEADER2_BYTES), byteorder='big')
 
-        if header & DMP_HEADER_BITMAP_ACCEL:
-            data = readFIFO(fifo_count, ICM_20948_DMP_RAW_ACCEL_BYTES)
-            ret['raw_acc'] = {
-                'X': int.from_bytes(data[:2], byteorder='big'),
-                'Y': int.from_bytes(data[2:4], byteorder='big'),
-                'Z': int.from_bytes(data[4:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_GYRO:
-            data = readFIFO(fifo_count, ICM_20948_DMP_RAW_GYRO_BYTES + ICM_20948_DMP_GYRO_BIAS_BYTES)
-            ret['raw_gyro'] = {
-                'X': int.from_bytes(data[:2], byteorder='big'),
-                'Y': int.from_bytes(data[2:4], byteorder='big'),
-                'Z': int.from_bytes(data[4:6], byteorder='big'),
-                'biasX': int.from_bytes(data[6:8], byteorder='big'),
-                'biasY': int.from_bytes(data[8:10], byteorder='big'),
-                'biasZ': int.from_bytes(data[10:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_COMPASS:
-            data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_BYTES)
-            ret['raw_compass'] = {
-                'X': int.from_bytes(data[:2], byteorder='big'),
-                'Y': int.from_bytes(data[2:4], byteorder='big'),
-                'Z': int.from_bytes(data[4:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_ALS:
-            data = readFIFO(fifo_count, ICM_20948_DMP_ALS_BYTES)
-            ret['als'] = {
-                'Ch0DATA': int.from_bytes(data[1:3], byteorder='big'),
-                'Ch1DATA': int.from_bytes(data[3:5], byteorder='big'),
-                'PDATA': data[7],
-            }
-
-        if header & DMP_HEADER_BITMAP_QUAT6:
-            data = readFIFO(fifo_count, ICM_20948_DMP_QUAT6_BYTES)
-            ret['quat6'] = {
-                'Q1': int.from_bytes(data[:4], byteorder='big'),
-                'Q2': int.from_bytes(data[4:8], byteorder='big'),
-                'Q3': int.from_bytes(data[8:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_QUAT9:
-            data = readFIFO(fifo_count, ICM_20948_DMP_QUAT9_BYTES)
-            ret['quat9'] = {
-                'Q1': int.from_bytes(data[:4], byteorder='big'),
-                'Q2': int.from_bytes(data[4:8], byteorder='big'),
-                'Q3': int.from_bytes(data[8:12], byteorder='big'),
-                'Accuracy': int.from_bytes(data[12:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_PQUAT6:
-            data = readFIFO(fifo_count, ICM_20948_DMP_PQUAT6_BYTES)
-            ret['pquat6'] = {
-                'Q1': int.from_bytes(data[:2], byteorder='big'),
-                'Q2': int.from_bytes(data[2:4], byteorder='big'),
-                'Q3': int.from_bytes(data[4:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_GEOMAG:
-            data = readFIFO(fifo_count, ICM_20948_DMP_GEOMAG_BYTES)
-            ret['geomag'] = {
-                'Q1': int.from_bytes(data[:4], byteorder='big'),
-                'Q2': int.from_bytes(data[4:8], byteorder='big'),
-                'Q3': int.from_bytes(data[8:12], byteorder='big'),
-                'Accuracy': int.from_bytes(data[12:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_PRESSURE:
-            data = readFIFO(fifo_count, ICM_20948_DMP_PRESSURE_BYTES)
-            ret['pressure'] = int.from_bytes(data[:3], byteorder='big')
-            ret['temperature'] = int.from_bytes(data[3:], byteorder='big')
-
-        if header & DMP_HEADER_BITMAP_COMPASS_CALIBR:
-            data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_CALIBR_BYTES)
-            ret['compass_calibration'] = {
-                'X': int.from_bytes(data[:4], byteorder='big'),
-                'Y': int.from_bytes(data[4:8], byteorder='big'),
-                'Z': int.from_bytes(data[8:], byteorder='big'),
-            }
-
-        if header & DMP_HEADER_BITMAP_STEP_DETECTOR:
-            data = readFIFO(fifo_count, ICM_20948_DMP_STEP_DETECTOR_BYTES)
-            ret['step_detector'] = int.from_bytes(data, byteorder='big')
-
-        # Now check for header2 features
+        processSensors(header, HEADER_SENSORS)
         if header2:
-            if header2 & DMP_HEADER2_BITMAP_ACCEL_ACCURACY:
-                data = readFIFO(fifo_count, ICM_20948_DMP_ACCEL_ACCURACY_BYTES)
-                ret['accel_accuracy'] = int.from_bytes(data, byteorder='big')
+            processSensors(header2, HEADER2_SENSORS)
 
-            if header2 & DMP_HEADER2_BITMAP_GYRO_ACCURACY:
-                data = readFIFO(fifo_count, ICM_20948_DMP_GYRO_ACCURACY_BYTES)
-                ret['gyro_accuracy'] = int.from_bytes(data, byteorder='big')
-
-            if header2 & DMP_HEADER2_BITMAP_COMPASS_ACCURACY:
-                data = readFIFO(fifo_count, ICM_20948_DMP_COMPASS_ACCURACY_BYTES)
-                ret['compass_accuracy'] = int.from_bytes(data, byteorder='big')
-
-            if header2 & DMP_HEADER2_BITMAP_PICKUP:
-                data = readFIFO(fifo_count, ICM_20948_DMP_PICKUP_BYTES)
-                ret['pickup'] = int.from_bytes(data, byteorder='big')
-
-            if header2 & DMP_HEADER2_BITMAP_ACTIVITY_RECOG:
-                data = readFIFO(fifo_count, ICM_20948_DMP_ACTIVITY_RECOGNITION_BYTES)
-                ret['activity_recog'] = {
-                    'state_start': data[0],
-                    'state_end': data[1],
-                    'timestamp': int.from_bytes(data[2:], byteorder='big'),
-                }
-
-            if header2 & DMP_HEADER2_BITMAP_SECONDARY_ON_OFF:
-                data = readFIFO(fifo_count, ICM_20948_DMP_SECONDARY_ON_OFF_BYTES)
-                ret['secondary_on_off'] = int.from_bytes(data, byteorder='big')
-
-            # Finally, extract the footer (gyro count)
-            data = readFIFO(fifo_count, ICM_20948_DMP_FOOTER_BYTES)
-            ret['footer'] = int.from_bytes(data, byteorder='big')
+        # Finally, extract the footer (gyro count)
+        data = readFIFO(ICM_20948_DMP_FOOTER_BYTES)
+        ret['footer'] = int.from_bytes(data, byteorder='big')
 
         return ret
