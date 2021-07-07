@@ -23,6 +23,11 @@ class DMPSensorNotSupported(Exception):
     pass
 
 
+class DMPFirmwareVerify(Exception):
+    """ Raised when the verification of firmware fails during load """
+    pass
+
+
 DMP_START_ADDRESS = 0x1000
 DMP_MEM_BANK_SIZE = 256
 DMP_LOAD_START = 0x90
@@ -654,6 +659,7 @@ ICM_20948_DMP_FOOTER_BYTES = 2
 ICM_20948_DMP_MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from the FIFO in one go
 
 INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data lines
+INV_MAX_SERIAL_READ = 16 # Max size that can be read across I2C or SPI data lines
 
 
 class BaseStruct(ctypes.Structure):
@@ -664,7 +670,7 @@ class BaseStruct(ctypes.Structure):
         for field, _ in self._fields_:
             value = getattr(self, field)
             # if the type is not a primitive and it evaluates to False ...
-            if (type(value) not in [int, long, float, bool]) and not bool(value):
+            if (type(value) not in [int, float, bool]) and not bool(value):
                 # it's a null pointer
                 value = None
             elif hasattr(value, "_length_") and hasattr(value, "_type_"):
@@ -835,7 +841,7 @@ class Fsync_Delay_Time(BaseStruct):
     mask = DMP_HEADER2_BITMAP_FSYNC
     layout = '!H'
     _fields_ = [
-        ('Delay', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
+        ('Value', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
     ]
 
 
@@ -861,7 +867,7 @@ class Activity_Recognition(BaseStruct):
     mask = DMP_HEADER2_BITMAP_ACTIVITY_RECOG
     layout = '!BBI'
     _fields_ = [
-        ('State_Start', ctypes.c_uint8)
+        ('State_Start', ctypes.c_uint8),
         ('State_End', ctypes.c_uint8),
         ('Timestamp', ctypes.c_uint32),
     ]
@@ -888,7 +894,7 @@ class Secondary_On_Off(BaseStruct):
 class Footer(BaseStruct):
     layout = '!H'
     _fields_ = [
-        ('footer', ctypes.c_uint16),
+        ('Value', ctypes.c_uint16),
     ]
 
 HEADER_SENSORS = [
