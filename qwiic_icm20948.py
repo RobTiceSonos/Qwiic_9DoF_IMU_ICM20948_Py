@@ -1234,17 +1234,241 @@ class QwiicIcm20948(object):
             ctrl = ctrl & 0x7F
         self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
-    def loadDMPFirmware(self):
-        pass
+    def loadDMPFirmware(self, data_start, size_start, load_addr):
+        # int write_size;
+        # ICM_20948_Status_e result = ICM_20948_Stat_Ok;
+        # unsigned short memaddr;
+        # const unsigned char *data;
+        # unsigned short size;
+        # unsigned char data_cmp[INV_MAX_SERIAL_READ];
+        # int flag = 0;
+
+        # // Write DMP memory
+
+        # data = data_start;
+        # size = size_start;
+        # memaddr = load_addr;
+        size = size_start
+        memaddr = load_addr
+        data = data_start
+
+        # #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
+        # unsigned char data_not_pg[INV_MAX_SERIAL_READ]; // Suggested by @HyperKokichi in Issue #63
+        # #endif
+        # while (size > 0)
+        # {
+        #     //write_size = min(size, INV_MAX_SERIAL_WRITE); // Write in chunks of INV_MAX_SERIAL_WRITE
+        #     if (size <= INV_MAX_SERIAL_WRITE) // Write in chunks of INV_MAX_SERIAL_WRITE
+        #     write_size = size;
+        #     else
+        #     write_size = INV_MAX_SERIAL_WRITE;
+        #     if ((memaddr & 0xff) + write_size > 0x100)
+        #     {
+        #     // Moved across a bank
+        #     write_size = (memaddr & 0xff) + write_size - 0x100;
+        #     }
+        #     result = inv_icm20948_write_mems(pdev, memaddr, write_size, (unsigned char *)data);
+        #     data += write_size;
+        #     size -= write_size;
+        #     memaddr += write_size;
+        # }
+        while size > 0:
+            write_size = max(0, min(size, self.INV_MAX_SERIAL_WRITE))
+            if ((memaddr & 0xff) + write_size > 0x100):
+                # Moved across a bank
+                write_size = (memaddr & 0xff) + write_size - 0x100
+            self.writeDMPmems(memaddr, write_size, data)
+            self.write(memaddr, data)
+            data += write_size
+            size -= write_size
+            memaddr += write_size
+
+        # // Verify DMP memory
+
+        # data = data_start;
+        # size = size_start;
+        # memaddr = load_addr;
+        size = size_start
+        memaddr = load_addr
+        data = data_start
+        # while (size > 0)
+        # {
+        #     //write_size = min(size, INV_MAX_SERIAL_READ); // Read in chunks of INV_MAX_SERIAL_READ
+        #     if (size <= INV_MAX_SERIAL_READ) // Read in chunks of INV_MAX_SERIAL_READ
+        #     write_size = size;
+        #     else
+        #     write_size = INV_MAX_SERIAL_READ;
+        #     if ((memaddr & 0xff) + write_size > 0x100)
+        #     {
+        #     // Moved across a bank
+        #     write_size = (memaddr & 0xff) + write_size - 0x100;
+        #     }
+        #     result = inv_icm20948_read_mems(pdev, memaddr, write_size, data_cmp);
+        #     if (result != ICM_20948_Stat_Ok)
+        #     flag++;                               // Error, DMP not written correctly
+        # #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
+        #     memcpy_P(data_not_pg, data, write_size);  // Suggested by @HyperKokichi in Issue #63
+        #     if (memcmp(data_cmp, data_not_pg, write_size))
+        # #else
+        #     if (memcmp(data_cmp, data, write_size)) // Compare the data
+        # #endif
+        #     return ICM_20948_Stat_DMPVerifyFail;
+        #     data += write_size;
+        #     size -= write_size;
+        #     memaddr += write_size;
+        # }
+
+        while size > 0:
+            write_size = max(0, min(size, self.INV_MAX_SERIAL_READ))
+            if ((memaddr & 0xff) + write_size > 0x100):
+                # Moved across a bank
+                write_size = (memaddr & 0xff) + write_size - 0x100
+            data_cmp = self.read(memaddr, write_size)
+            if data != data_cmp:
+                # TODO something angry?
+                return 1
+            data += write_size
+            size -= write_size
+            memaddr += write_size
+
 
     def setDMPstartAddress(self, addr):
-        pass
+        # result = ICM_20948_set_bank(pdev, 2); // Set bank 2
+        # if (result != ICM_20948_Stat_Ok)
+        # {
+        #     return result;
+        # }
+        self.setBank(2)
 
-    def writeDMPmems(self, reg, data):
-        pass
+        # Write the sensor control bits into memory address AGB2_REG_PRGM_START_ADDRH
+        # result = ICM_20948_execute_w(pdev, AGB2_REG_PRGM_START_ADDRH, (uint8_t *)start_address, 2);
+        self.writeByte(self.AGB2_REG_PRGM_START_ADDRH, addr >> 8)
+        self.writeByte(self.AGB2_REG_PRGM_START_ADDRL, addr & 0xff)
+
+    def writeDMPmems(self, reg, length, data):
+        # ICM_20948_Status_e result = ICM_20948_Stat_Ok;
+        # unsigned int bytesWritten = 0;
+        # unsigned int thisLen;
+        # unsigned char lBankSelected;
+        # unsigned char lStartAddrSelected;
+        bytesWritten = 0
+
+        # result = ICM_20948_set_bank(pdev, 0); // Set bank 0
+        self.setBank(0)
+
+        # lBankSelected = (reg >> 8);
+        lBankSelected = (reg >> 8)
+
+        # if (lBankSelected != pdev->_last_mems_bank)
+        # {
+        #     pdev->_last_mems_bank = lBankSelected;
+        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_BANK_SEL, &lBankSelected, 1);
+        #     if (result != ICM_20948_Stat_Ok)
+        #     {
+        #     return result;
+        #     }
+        # }
+        self.writeByte(self.AGB0_REG_MEM_BANK_SEL, lBankSelected)
+        
+        # while (bytesWritten < length)
+        # {
+        #     lStartAddrSelected = (reg & 0xff);
+
+        #     /* Sets the starting read or write address for the selected memory, inside of the selected page (see MEM_SEL Register).
+        #         Contents are changed after read or write of the selected memory.
+        #         This register must be written prior to each access to initialize the register to the proper starting address.
+        #         The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address. */
+
+        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_START_ADDR, &lStartAddrSelected, 1);
+
+        #     if (length - bytesWritten <= INV_MAX_SERIAL_WRITE)
+        #     thisLen = length - bytesWritten;
+        #     else
+        #     thisLen = INV_MAX_SERIAL_WRITE;
+
+        #     /* Write data */
+
+        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_R_W, (uint8_t *)&data[bytesWritten], thisLen);
+        #     if (result != ICM_20948_Stat_Ok)
+        #     {
+        #     return result;
+        #     }
+
+        #     bytesWritten += thisLen;
+        #     reg += thisLen;
+        # } 
+        while bytesWritten < length:
+            
+            lStartAddrSelected = (reg & 0xff)
+            self.writeByte(self.AGB0_REG_MEM_START_ADDR, lStartAddrSelected)
+
+            if (length - bytesWritten <= self.INV_MAX_SERIAL_WRITE):
+                thisLen = length - bytesWritten
+            else:
+                thisLen = self.INV_MAX_SERIAL_WRITE
+            
+            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten])
+            bytesWritten += thisLen
+            reg += thisLen
+
 
     def setGyroSF(self, div, level):
-        pass
+        # // gyro_level should be set to 4 regardless of fullscale, due to the addition of API dmp_icm20648_set_gyro_fsr()
+        # gyro_level = 4;
+        gyro_level = 4
+
+        # // First read the TIMEBASE_CORRECTION_PLL register from Bank 1
+        # int8_t pll; // Signed. Typical value is 0x18
+        # result = ICM_20948_set_bank(pdev, 1);
+        self.setBank(1)
+
+        # result = ICM_20948_execute_r(pdev, AGB1_REG_TIMEBASE_CORRECTION_PLL, (uint8_t *)&pll, 1);
+        # if (result != ICM_20948_Stat_Ok)
+        # {
+        #     return result;
+        # }
+        pll = self.readByte(self.AGB1_REG_TIMEBASE_CORRECTION_PLL)
+
+        # pdev->_gyroSFpll = pll; // Record the PLL value so we can debug print it
+        # // Now calculate the Gyro SF using code taken from the InvenSense example (inv_icm20948_set_gyro_sf)
+        # long gyro_sf;
+        # unsigned long long const MagicConstant = 264446880937391LL;
+        # unsigned long long const MagicConstantScale = 100000LL;
+        # unsigned long long ResultLL;
+        MagicConstant = 264446880937391
+        MagicConstantScale = 100000
+
+        # if (pll & 0x80)
+        # {
+        #     ResultLL = (MagicConstant * (long long)(1ULL << gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale);
+        # }
+        # else
+        # {
+        #     ResultLL = (MagicConstant * (long long)(1ULL << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale);
+        # }
+        #         In above deprecated FP version, worst case arguments can produce a result that overflows a signed long.
+        #         Here, for such cases, we emulate the FP behavior of setting the result to the maximum positive value, as
+        #         the compiler's conversion of a u64 to an s32 is simple truncation of the u64's high half, sadly....
+        # if (ResultLL > 0x7FFFFFFF)
+        #     gyro_sf = 0x7FFFFFFF;
+        # else
+        #     gyro_sf = (long)ResultLL;
+        gyro_sf = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
+
+        # // Finally, write the value to the DMP GYRO_SF register
+        # unsigned char gyro_sf_reg[4];
+        # gyro_sf_reg[0] = (unsigned char)(gyro_sf >> 24);
+        # gyro_sf_reg[1] = (unsigned char)(gyro_sf >> 16);
+        # gyro_sf_reg[2] = (unsigned char)(gyro_sf >> 8);
+        # gyro_sf_reg[3] = (unsigned char)(gyro_sf & 0xff);
+        gyro_sf_reg = [4]
+        gyro_sf_reg[0] = (gyro_sf >> 24)
+        gyro_sf_reg[1] = (gyro_sf >> 16)
+        gyro_sf_reg[2] = (gyro_sf >> 8)
+        gyro_sf_reg[3] = (gyro_sf & 0xff)
+
+        # result = inv_icm20948_write_mems(pdev, GYRO_SF, 4, (const unsigned char *)&gyro_sf_reg);
+        self.writeDMPmems(self.GYRO_SF, 4, gyro_sf_reg)
 
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
