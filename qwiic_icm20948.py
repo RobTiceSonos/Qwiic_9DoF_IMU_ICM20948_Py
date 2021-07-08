@@ -53,10 +53,12 @@ New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.s
 
 from fcntl import F_EXLCK
 import qwiic_i2c
+from enum import Enum
 from struct import unpack
 import time
 
 from dmp_defines import *
+from dmp_image import dmp3_image
 
 # Define the device name and I2C addresses. These are set in the class definition
 # as class variables, making them avilable without having to create a class instance.
@@ -146,6 +148,7 @@ AK09916_REG_HZH = 0x16
 AK09916_REG_ST2 = 0x18
 AK09916_REG_CNTL2 = 0x31
 AK09916_REG_CNTL3 = 0x32
+
 
 # define the class that encapsulates the device being created. All information associated with this
 # device is encapsulated by this class. The device class should be the only value exported
@@ -331,8 +334,7 @@ class QwiicIcm20948(object):
         if i2c_driver == None:
             self._i2c = qwiic_i2c.getI2CDriver()
             if self._i2c == None:
-                print("Unable to load I2C driver for this platform.")
-                return
+                raise Exception("Unable to load I2C driver for this platform.")
         else:
             self._i2c = i2c_driver
 
@@ -353,16 +355,16 @@ class QwiicIcm20948(object):
 
     connected = property(isConnected)
 
-    def writeByte(self, reg, val):
-        return self._i2c.writeByte(self.address, reg, val)
+    def _writeByte(self, reg, val):
+        self._i2c.writeByte(self.address, reg, val)
 
-    def write(self, reg, data):
-        return self._i2c.writeBlock(self.address, reg, data)
+    def _writeBlock(self, reg, data):
+        self._i2c.writeBlock(self.address, reg, data)
 
-    def readByte(self, reg):
+    def _readByte(self, reg):
         return self._i2c.readByte(self.address, reg)
 
-    def read(self, reg, len):
+    def _readBlock(self, reg, len):
         return self._i2c.readBlock(self.address, reg, len)
 
     # ----------------------------------
@@ -378,11 +380,9 @@ class QwiicIcm20948(object):
 
         """
         if bank > 3:	# Only 4 possible banks
-            print("Invalid Bank value: %d" % bank)
-            return False
+            raise Exception(f"Invalid bank value {bank}")
         bank = ((bank << 4) & 0x30) # bits 5:4 of REG_BANK_SEL
-        #return ICM_20948_execute_w(pdev, REG_BANK_SEL, &bank, 1)
-        return self.writeByte(self.REG_BANK_SEL, bank)
+        self._writeByte(self.REG_BANK_SEL, bank)
 
     # ----------------------------------
     # swReset()
@@ -398,14 +398,14 @@ class QwiicIcm20948(object):
         """
         # Read the Power Management Register, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_PWR_MGMT_1)
+        register = self._readByte(self.AGB0_REG_PWR_MGMT_1)
 
         # Set the device reset bit [7]
-        register |= (1<<7)
+        register |= (1 << 7)
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_PWR_MGMT_1, register)
+        self._writeByte(self.AGB0_REG_PWR_MGMT_1, register)
 
     # ----------------------------------
     # sleep()
@@ -421,17 +421,14 @@ class QwiicIcm20948(object):
         """
         # Read the Power Management Register, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_PWR_MGMT_1)
+        register = self._readByte(self.AGB0_REG_PWR_MGMT_1)
 
         # Set/clear the sleep bit [6] as needed
-        if on:
-            register |= (1<<6) # set bit
-        else:
-            register &= ~(1<<6) # clear bit
+        register = register | (1 << 6) if on else register & ~(1 << 6)
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_PWR_MGMT_1, register)
+        self._writeByte(self.AGB0_REG_PWR_MGMT_1, register)
 
     # ----------------------------------
     # lowPower()
@@ -447,17 +444,14 @@ class QwiicIcm20948(object):
         """
         # Read the Power Management Register, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_PWR_MGMT_1)
+        register = self._readByte(self.AGB0_REG_PWR_MGMT_1)
 
         # Set/clear the low power mode bit [5] as needed
-        if on:
-            register |= (1<<5) # set bit
-        else:
-            register &= ~(1<<5) # clear bit
+        register = register | (1 << 5) if on else register & ~(1 << 5)
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_PWR_MGMT_1, register)
+        self._writeByte(self.AGB0_REG_PWR_MGMT_1, register)
 
     # ----------------------------------
     # setSampleMode()
@@ -472,49 +466,46 @@ class QwiicIcm20948(object):
 
         """
         # check for valid sensor ID from user of this function
-        if ((sensors & (ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr | ICM_20948_Internal_Mst)) == False):
-            print("Invalid Sensor ID")
-            return False
+        if not (sensors & (ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr | ICM_20948_Internal_Mst)):
+            raise Exception('Invalid Sensor ID')
 
         # Read the LP CONFIG Register, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_LP_CONFIG)
+        register = self._readByte(self.AGB0_REG_LP_CONFIG)
 
         if (sensors & ICM_20948_Internal_Acc):
             # Set/clear the sensor specific sample mode bit as needed
             if mode == ICM_20948_Sample_Mode_Cycled:
-                register |= (1<<5) # set bit
+                register |= (1 << 5) # set bit
             elif mode == ICM_20948_Sample_Mode_Continuous:
-                register &= ~(1<<5) # clear bit
+                register &= ~(1 << 5) # clear bit
 
         if (sensors & ICM_20948_Internal_Gyr):
             # Set/clear the sensor specific sample mode bit as needed
             if mode == ICM_20948_Sample_Mode_Cycled:
-                register |= (1<<4) # set bit
+                register |= (1 << 4) # set bit
             elif mode == ICM_20948_Sample_Mode_Continuous:
-                register &= ~(1<<4) # clear bit
+                register &= ~(1 << 4) # clear bit
 
         if (sensors & ICM_20948_Internal_Mst):
             # Set/clear the sensor specific sample mode bit as needed
             if mode == ICM_20948_Sample_Mode_Cycled:
-                register |= (1<<6) # set bit
+                register |= (1 << 6) # set bit
             elif mode == ICM_20948_Sample_Mode_Continuous:
-                register &= ~(1<<6) # clear bit
+                register &= ~(1 << 6) # clear bit
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_LP_CONFIG, register)
+        self._writeByte(self.AGB0_REG_LP_CONFIG, register)
 
     def setSampleRateGyr(self, rate):
         self.setBank(2)
-        self.writeByte(self.AGB2_REG_GYRO_SMPLRT_DIV, rate)
+        self._writeByte(self.AGB2_REG_GYRO_SMPLRT_DIV, rate)
 
     def setSampleRateAcc(self, rate):
         self.setBank(2)
-        div1 = rate << 8
-        div2 = rate & 0xFF
-        self.writeByte(self.AGB2_REG_ACCEL_SMPLRT_DIV_1, div1)
-        self.writeByte(self.AGB2_REG_ACCEL_SMPLRT_DIV_2, div2)
+        div = rate.to_bytes(2, 'big')
+        self._writeBlock(self.AGB2_REG_ACCEL_SMPLRT_DIV_1, div)
 
     # ----------------------------------
     # setFullScaleRangeAccel()
@@ -530,7 +521,7 @@ class QwiicIcm20948(object):
         """
         # Read the Accel Config Register, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_ACCEL_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_ACCEL_CONFIG_1)
 
         register &= ~(0b00000110) # clear bits 2:1 (0b0000.0XX0)
 
@@ -538,7 +529,7 @@ class QwiicIcm20948(object):
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
 
     # ----------------------------------
     # setFullScaleRangeGyro()
@@ -554,7 +545,7 @@ class QwiicIcm20948(object):
         """
         # Read the Gyro Config Register, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_GYRO_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_GYRO_CONFIG_1)
 
         register &= ~(0b00000110) # clear bits 2:1 (0b0000.0XX0)
 
@@ -562,7 +553,7 @@ class QwiicIcm20948(object):
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
 
     # ----------------------------------
     # setDLPFcfgAccel()
@@ -578,7 +569,7 @@ class QwiicIcm20948(object):
         """
         # Read the Accel Config Register, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_ACCEL_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_ACCEL_CONFIG_1)
 
         register &= ~(0b00111000) # clear bits 5:3 (0b00XX.X000)
 
@@ -586,7 +577,7 @@ class QwiicIcm20948(object):
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
 
     # ----------------------------------
     # setDLPFcfgGyro()
@@ -602,7 +593,7 @@ class QwiicIcm20948(object):
         """
         # Read the gyro Config Register, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_GYRO_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_GYRO_CONFIG_1)
 
         register &= ~(0b00111000) # clear bits 5:3 (0b00XX.X000)
 
@@ -610,7 +601,7 @@ class QwiicIcm20948(object):
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
 
     # ----------------------------------
     # enableDlpfAccel()
@@ -627,17 +618,14 @@ class QwiicIcm20948(object):
 
         # Read the AGB2_REG_ACCEL_CONFIG_1, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_ACCEL_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_ACCEL_CONFIG_1)
 
         # Set/clear the ACCEL_FCHOICE bit [0] as needed
-        if on:
-            register |= (1<<0) # set bit
-        else:
-            register &= ~(1<<0) # clear bit
+        register = register | 1 if on else register & ~1
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_ACCEL_CONFIG_1, register)
 
     # ----------------------------------
     # enableDlpfGyro()
@@ -654,17 +642,14 @@ class QwiicIcm20948(object):
 
         # Read the AGB2_REG_GYRO_CONFIG_1, store in local variable "register"
         self.setBank(2)
-        register = self.readByte(self.AGB2_REG_GYRO_CONFIG_1)
+        register = self._readByte(self.AGB2_REG_GYRO_CONFIG_1)
 
         # Set/clear the GYRO_FCHOICE bit [0] as needed
-        if on:
-            register |= (1<<0) # set bit
-        else:
-            register &= ~(1<<0) # clear bit
+        register = register | 1 if on else register & ~1
 
         # Write register
         self.setBank(2)
-        return self.writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
+        self._writeByte(self.AGB2_REG_GYRO_CONFIG_1, register)
 
     # ----------------------------------
     # dataReady()
@@ -681,13 +666,10 @@ class QwiicIcm20948(object):
 
         # Read the AGB0_REG_INT_STATUS_1, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_INT_STATUS_1)
+        register = self._readByte(self.AGB0_REG_INT_STATUS_1)
 
         # check bit [0]
-        if (register & (1<<0)):
-            return True
-        else:
-            return False
+        return register & 0x1 == 1
 
     # ----------------------------------
     # ToSignedInt()
@@ -753,12 +735,6 @@ class QwiicIcm20948(object):
         self.myRaw = self.ToSignedInt(self.myRaw)
         self.mzRaw = self.ToSignedInt(self.mzRaw)
 
-        # check for data read error
-        if buff:
-            return True
-        else:
-            return False
-
     # ----------------------------------
     # i2cMasterPassthrough()
     #
@@ -774,17 +750,14 @@ class QwiicIcm20948(object):
 
         # Read the AGB0_REG_INT_PIN_CONFIG, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_INT_PIN_CONFIG)
+        register = self._readByte(self.AGB0_REG_INT_PIN_CONFIG)
 
         # Set/clear the BYPASS_EN bit [1] as needed
-        if passthrough:
-            register |= (1<<1) # set bit
-        else:
-            register &= ~(1<<1) # clear bit
+        register = register | (1 << 1) if passthrough else register & ~(1 << 1)
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_INT_PIN_CONFIG, register)
+        self._writeByte(self.AGB0_REG_INT_PIN_CONFIG, register)
 
     # ----------------------------------
     # i2cMasterEnable()
@@ -804,30 +777,27 @@ class QwiicIcm20948(object):
         # Setup Master Clock speed as 345.6 kHz, and NSP (aka next slave read) to "stop between reads"
         # Read the AGB3_REG_I2C_MST_CTRL, store in local variable "register"
         self.setBank(3)
-        register = self.readByte(self.AGB3_REG_I2C_MST_CTRL)
+        register = self._readByte(self.AGB3_REG_I2C_MST_CTRL)
 
         register &= ~(0x0F) # clear bits for master clock [3:0]
         register |= (0x07) # set bits for master clock [3:0], 0x07 corresponds to 345.6 kHz, good for up to 400 kHz
-        register |= (1<<4) # set bit [4] for NSR (next slave read). 0 = restart between reads. 1 = stop between reads.
+        register |= (1 << 4) # set bit [4] for NSR (next slave read). 0 = restart between reads. 1 = stop between reads.
 
         # Write register
         self.setBank(3)
-        self.writeByte(self.AGB3_REG_I2C_MST_CTRL, register)
+        self._writeByte(self.AGB3_REG_I2C_MST_CTRL, register)
 
         # enable/disable Master I2C
         # Read the AGB0_REG_USER_CTRL, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_USER_CTRL)
+        register = self._readByte(self.AGB0_REG_USER_CTRL)
 
         # Set/clear the I2C_MST_EN bit [5] as needed
-        if enable:
-            register |= (1<<5) # set bit
-        else:
-            register &= ~(1<<5) # clear bit
+        register = register | (1 << 5) if enable else register & ~(1 << 5)
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_USER_CTRL, register)
+        self._writeByte(self.AGB0_REG_USER_CTRL, register)
 
     # Transact directly with an I2C device, one byte at a time
     # Used to configure a device before it is setup into a normal 0-3 slave slot
@@ -838,64 +808,56 @@ class QwiicIcm20948(object):
             addr |= 0x80
 
         self.setBank(3)
-        self.writeByte(self.AGB3_REG_I2C_SLV4_ADDR, addr)
+        self._writeByte(self.AGB3_REG_I2C_SLV4_ADDR, addr)
 
         self.setBank(3)
-        self.writeByte(self.AGB3_REG_I2C_SLV4_REG, reg)
+        self._writeByte(self.AGB3_REG_I2C_SLV4_REG, reg)
 
         ctrl_register_slv4 = 0x00
-        ctrl_register_slv4 |= (1<<7) # EN bit [7] (set)
-        ctrl_register_slv4 &= ~(1<<6) # INT_EN bit [6] (cleared)
+        ctrl_register_slv4 |= (1 << 7) # EN bit [7] (set)
+        ctrl_register_slv4 &= ~(1 << 6) # INT_EN bit [6] (cleared)
         ctrl_register_slv4 &= ~(0x0F) # DLY bits [4:0] (cleared = 0)
         if(send_reg_addr):
-            ctrl_register_slv4 &= ~(1<<5) # REG_DIS bit [5] (cleared)
+            ctrl_register_slv4 &= ~(1 << 5) # REG_DIS bit [5] (cleared)
         else:
-            ctrl_register_slv4 |= (1<<5) # REG_DIS bit [5] (set)
+            ctrl_register_slv4 |= (1 << 5) # REG_DIS bit [5] (set)
 
-        txn_failed = False
-
-        if (Rw == False):
+        if not Rw:
             self.setBank(3)
-            self.writeByte(self.AGB3_REG_I2C_SLV4_DO, data)
+            self._writeByte(self.AGB3_REG_I2C_SLV4_DO, data)
 
         # Kick off txn
         self.setBank(3)
-        self.writeByte(self.AGB3_REG_I2C_SLV4_CTRL, ctrl_register_slv4)
+        self._writeByte(self.AGB3_REG_I2C_SLV4_CTRL, ctrl_register_slv4)
 
         max_cycles = 1000
         count = 0
         slave4Done = False
-        while (slave4Done == False):
+        while not slave4Done:
             self.setBank(0)
-            i2c_mst_status = self.readByte(self.AGB0_REG_I2C_MST_STATUS)
-            if i2c_mst_status & (1<<6): # Check I2C_SLAVE_DONE bit [6]
+            i2c_mst_status = self._readByte(self.AGB0_REG_I2C_MST_STATUS)
+            if i2c_mst_status & (1 << 6): # Check I2C_SLAVE_DONE bit [6]
                 slave4Done = True
             if  count > max_cycles:
                 slave4Done = True
             count += 1
 
-        if i2c_mst_status & (1<<4): # Check I2C_SLV4_NACK bit [4]
-            txn_failed = True
+        if i2c_mst_status & (1 << 4): # Check I2C_SLV4_NACK bit [4]
+            raise Exception('TXN Failed.')
 
         if count > max_cycles:
-            txn_failed = True
-
-        if txn_failed:
-            return False
+            raise Exception('Count > max_cycles.')
 
         if Rw:
             self.setBank(3)
-            return self.readByte(self.AGB3_REG_I2C_SLV4_DI)
+            return self._readByte(self.AGB3_REG_I2C_SLV4_DI)
 
-        return True # if we get here, then it was a successful write
 
     def i2cMasterSingleW(self, addr, reg, data):
-        data1 = self.ICM_20948_i2c_master_slv4_txn(addr, reg, data, False, True)
-        return data1
+        self.ICM_20948_i2c_master_slv4_txn(addr, reg, data, False, True)
 
     def writeMag(self, reg, data):
-        data = self.i2cMasterSingleW(MAG_AK09916_I2C_ADDR, reg, data)
-        return data
+        self.i2cMasterSingleW(MAG_AK09916_I2C_ADDR, reg, data)
 
     def i2cMasterSingleR(self, addr, reg):
         data = self.ICM_20948_i2c_master_slv4_txn(addr, reg, 0, True, True)
@@ -917,14 +879,10 @@ class QwiicIcm20948(object):
             :rtype: bool
 
         """
-
         whoiam1 = self.readMag(AK09916_REG_WIA1)
         whoiam2 = self.readMag(AK09916_REG_WIA2)
 
-        if ((whoiam1 == (MAG_AK09916_WHO_AM_I >> 8)) and (whoiam2 == (MAG_AK09916_WHO_AM_I & 0xFF))):
-            return True
-        else:
-            return False
+        return ((whoiam1 == (MAG_AK09916_WHO_AM_I >> 8)) and (whoiam2 == (MAG_AK09916_WHO_AM_I & 0xFF)))
 
     # ----------------------------------
     # i2cMasterReset()
@@ -941,14 +899,14 @@ class QwiicIcm20948(object):
 
         # Read the AGB0_REG_USER_CTRL, store in local variable "register"
         self.setBank(0)
-        register = self.readByte(self.AGB0_REG_USER_CTRL)
+        register = self._readByte(self.AGB0_REG_USER_CTRL)
 
         # Set the I2C_MST_RST bit [1]
-        register |= (1<<1) # set bit
+        register |= (1 << 1) # set bit
 
         # Write register
         self.setBank(0)
-        return self.writeByte(self.AGB0_REG_USER_CTRL, register)
+        self._writeByte(self.AGB0_REG_USER_CTRL, register)
 
     # ----------------------------------
     # ICM_20948_i2c_master_configure_slave()
@@ -962,50 +920,9 @@ class QwiicIcm20948(object):
             :rtype: bool
 
         """
-        # Adjust slave address, reg (aka sub-address), and control as needed for each slave slot (0-3)
-        slv_addr_reg = 0x00
-        slv_reg_reg = 0x00
-        slv_ctrl_reg = 0x00
-        if slave == 0:
-            slv_addr_reg = self.AGB3_REG_I2C_SLV0_ADDR
-            slv_reg_reg = self.AGB3_REG_I2C_SLV0_REG
-            slv_ctrl_reg = self.AGB3_REG_I2C_SLV0_CTRL
-        elif slave == 1:
-            slv_addr_reg = self.AGB3_REG_I2C_SLV1_ADDR
-            slv_reg_reg = self.AGB3_REG_I2C_SLV1_REG
-            slv_ctrl_reg = self.AGB3_REG_I2C_SLV1_CTRL
-        elif slave == 2:
-            slv_addr_reg = self.AGB3_REG_I2C_SLV2_ADDR
-            slv_reg_reg = self.AGB3_REG_I2C_SLV2_REG
-            slv_ctrl_reg = self.AGB3_REG_I2C_SLV2_CTRL
-        elif slave == 3:
-            slv_addr_reg = self.AGB3_REG_I2C_SLV3_ADDR
-            slv_reg_reg = self.AGB3_REG_I2C_SLV3_REG
-            slv_ctrl_reg = self.AGB3_REG_I2C_SLV3_CTRL
-        else:
-            return False
-
-        self.setBank(3)
-
-        # Set the slave address and the Rw flag
-        address = addr
-        if Rw:
-            address |= (1<<7) # set bit# set RNW bit [7]
-
-        self.writeByte(slv_addr_reg, address)
-
-        # Set the slave sub-address (reg)
-        subAddress = reg
-        self.writeByte(slv_reg_reg, subAddress)
-
-        # Set up the control info
-        ctrl_reg_slvX = 0x00
-        ctrl_reg_slvX |= len
-        ctrl_reg_slvX |= (enable << 7)
-        ctrl_reg_slvX |= (swap << 6)
-        ctrl_reg_slvX |= (data_only << 5)
-        ctrl_reg_slvX |= (grp << 4)
-        return self.writeByte(slv_ctrl_reg, ctrl_reg_slvX)
+        # Provided for backward-compatibility only. Please update to i2cControllerConfigurePeripheral and i2cControllerPeriph4Transaction.
+        # https://www.oshwa.org/2020/06/29/a-resolution-to-redefine-spi-pin-names/
+        self.i2cControllerConfigurePeripheral(slave, addr, reg, len, Rw, enable, data_only, grp, swap)
 
     def i2cControllerConfigurePeripheral(self, peripheral, addr, reg, len, Rw, enable, data_only, grp, swap, dataOut=None):
         # Adjust slave address, reg (aka sub-address), and control as needed for each slave slot (0-3)
@@ -1035,24 +952,24 @@ class QwiicIcm20948(object):
             periph_ctrl_reg = self.AGB3_REG_I2C_SLV3_CTRL
             periph_do_reg = self.AGB3_REG_I2C_SLV3_DO
         else:
-            return False
+            raise Exception(f'Unknown peripheral slot: {peripheral}')
 
         self.setBank(3)
 
         # Set the slave address and the Rw flag
         address = addr
         if Rw:
-            address |= (1<<7) # set bit# set RNW bit [7]
+            address |= (1 << 7) # set bit# set RNW bit [7]
 
-        self.writeByte(periph_addr_reg, address)
+        self._writeByte(periph_addr_reg, address)
 
         # If we are setting up a write, configure the Data Out register too
         if not Rw and dataOut:
-            self.writeByte(periph_do_reg, dataOut)
+            self._writeByte(periph_do_reg, dataOut)
 
         # Set the slave sub-address (reg)
         subAddress = reg
-        self.writeByte(periph_reg_reg, subAddress)
+        self._writeByte(periph_reg_reg, subAddress)
 
         # Set up the control info
         ctrl_reg_slvX = 0x00
@@ -1061,13 +978,13 @@ class QwiicIcm20948(object):
         ctrl_reg_slvX |= (swap << 6)
         ctrl_reg_slvX |= (data_only << 5)
         ctrl_reg_slvX |= (grp << 4)
-        return self.writeByte(periph_ctrl_reg, ctrl_reg_slvX)
+        self._writeByte(periph_ctrl_reg, ctrl_reg_slvX)
 
     # ----------------------------------
     # startupMagnetometer()
     #
     # Initialize the magnotometer with default values
-    def startupMagnetometer(self):
+    def startupMagnetometer(self, dmp: bool = False):
         """
             Initialize the magnotometer with default values
 
@@ -1075,7 +992,7 @@ class QwiicIcm20948(object):
             :rtype: bool
 
         """
-        self.i2cMasterPassthrough(False) #Do not connect the SDA/SCL pins to AUX_DA/AUX_CL
+        self.i2cMasterPassthrough(False) # Do not connect the SDA/SCL pins to AUX_DA/AUX_CL
         self.i2cMasterEnable(True)
 
         # After a ICM reset the Mag sensor may stop responding over the I2C master
@@ -1090,21 +1007,24 @@ class QwiicIcm20948(object):
             tries += 1
 
         if (tries == maxTries):
-            print("Mag ID fail. Tries: %d\n", tries)
-            return False
+            raise Exception(f"Mag ID fail. Tries: {tries}")
+
+        # Return now if dmp is true
+        if dmp:
+            return
 
         #Set up magnetometer
         mag_reg_ctrl2 = 0x00
         mag_reg_ctrl2 |= AK09916_mode_cont_100hz
         self.writeMag(AK09916_REG_CNTL2, mag_reg_ctrl2)
 
-        return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, 9, True, True, False, False, False)
+        self.i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, 9, True, True, False, False, False)
 
     # ----------------------------------
     # begin()
     #
     # Initialize the system/validate the board.
-    def begin(self, dmp=False):
+    def begin(self, dmp: bool = False):
         """
             Initialize the operation of the ICM20948 module
 
@@ -1115,20 +1035,26 @@ class QwiicIcm20948(object):
         self.dmp = dmp
         # are we who we need to be?
         self.setBank(0)
-        chipID = self.readByte(self.AGB0_REG_WHO_AM_I)
+        chipID = self._readByte(self.AGB0_REG_WHO_AM_I)
         if not chipID in _validChipIDs:
-            print("Invalid Chip ID: 0x%.2X" % chipID)
-            return False
+            raise Exception("Invalid Chip ID: 0x%.2X" % chipID)
 
         # software reset
         self.swReset()
-        time.sleep(.05)
+        time.sleep(0.05)
 
         # set sleep mode off
         self.sleep(False)
 
         # set lower power mode off
         self.lowPower(False)
+
+        self.startupMagnetometer(dmp)
+
+        if self.dmp:
+            self.dmp_sensor_list = set()
+            self.initializeDMP()
+            return
 
         # set sample mode to continuous for both accel and gyro
         self.setSampleMode((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), ICM_20948_Sample_Mode_Continuous)
@@ -1145,40 +1071,32 @@ class QwiicIcm20948(object):
         self.enableDlpfAccel(False)
         self.enableDlpfGyro(False)
 
-        self.startupMagnetometer()
-
-        if self.dmp:
-            self.dmp_sensor_list = set()
-            self.initializeDMP()
-
-        return True
-
-    def enableFIFO(self, enable=True):
+    def enableFIFO(self, enable: bool = True):
         self.setBank(0)
-        ctrl = self.readByte(self.AGB0_REG_USER_CTRL)
-        if enable:
-            ctrl = ctrl | 0x40
-        else:
-            ctrl = ctrl & 0xBF
-        self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
+        ctrl = self._readByte(self.AGB0_REG_USER_CTRL)
+        ctrl = ctrl | (1 << 6) if enable else ctrl & ~(1 << 6)
+        self._writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
     def resetFIFO(self):
         self.setBank(0)
-        ctrl = self.readByte(self.AGB0_REG_FIFO_RST) & 0xE0
+        ctrl = self._readByte(self.AGB0_REG_FIFO_RST) & 0xE0
         ctrl = ctrl | 0x1F
-        self.writeByte(self.AGB0_REG_FIFO_RST, ctrl)
+        self._writeByte(self.AGB0_REG_FIFO_RST, ctrl)
         # The InvenSense Nucleo examples write 0x1F followed by 0x1E
-        ctrl = ctrl & 0xFE
-        self.writeByte(self.AGB0_REG_FIFO_RST, ctrl)
+        ctrl = ctrl & ~1
+        self._writeByte(self.AGB0_REG_FIFO_RST, ctrl)
 
-    def enableDMP(self, enable):
+    def enableDMP(self, enable: bool = True):
         self.setBank(0)
-        ctrl = self.readByte(self.AGB0_REG_USER_CTRL)
-        if enable:
-            ctrl = ctrl | 0x80
-        else:
-            ctrl = ctrl & 0x7F
-        self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
+        ctrl = self._readByte(self.AGB0_REG_USER_CTRL)
+        ctrl = ctrl | (1 << 7) if enable else ctrl & ~(1 << 7)
+        self._writeByte(self.AGB0_REG_USER_CTRL, ctrl)
+
+    def resetDMP(self):
+        self.setBank(0)
+        ctrl = self._readByte(self.AGB0_REG_USER_CTRL)
+        ctrl = ctrl | 1 << 3
+        self._writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
     def loadDMPFirmware(self, data = dmp3_image, load_addr = DMP_LOAD_START):
         # Make sure chip is awake
@@ -1191,175 +1109,51 @@ class QwiicIcm20948(object):
         memaddr = load_addr
         bytesWritten = 0
 
-        # #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
-        # unsigned char data_not_pg[INV_MAX_SERIAL_READ]; // Suggested by @HyperKokichi in Issue #63
-        # #endif
-        # while (size > 0)
-        # {
-        #     //write_size = min(size, INV_MAX_SERIAL_WRITE); // Write in chunks of INV_MAX_SERIAL_WRITE
-        #     if (size <= INV_MAX_SERIAL_WRITE) // Write in chunks of INV_MAX_SERIAL_WRITE
-        #     write_size = size;
-        #     else
-        #     write_size = INV_MAX_SERIAL_WRITE;
-        #     if ((memaddr & 0xff) + write_size > 0x100)
-        #     {
-        #     // Moved across a bank
-        #     write_size = (memaddr & 0xff) + write_size - 0x100;
-        #     }
-        #     result = inv_icm20948_write_mems(pdev, memaddr, write_size, (unsigned char *)data);
-        #     data += write_size;
-        #     size -= write_size;
-        #     memaddr += write_size;
-        # }
         while size > 0:
-            write_size = max(0, min(size, self.INV_MAX_SERIAL_WRITE))
-            if ((memaddr & 0xff) + write_size > 0x100):
+            write_size = max(0, min(size, INV_MAX_SERIAL_WRITE))
+            if ((memaddr & 0xFF) + write_size > 0x100):
                 # Moved across a bank
                 write_size = (memaddr & 0xff) + write_size - 0x100
-            self.writeDMPmems(memaddr, data[bytesWritten:bytesWritten + write_size])
+
+            self.writeMems(memaddr, data[bytesWritten:bytesWritten + write_size])
+
             bytesWritten += write_size
             size -= write_size
             memaddr += write_size
 
-        # // Verify DMP memory
-
-        # data = data_start;
-        # size = size_start;
-        # memaddr = load_addr;
+        # Verify DMP memory
         size = len(data)
         memaddr = load_addr
         bytesRead = 0
-        # while (size > 0)
-        # {
-        #     //write_size = min(size, INV_MAX_SERIAL_READ); // Read in chunks of INV_MAX_SERIAL_READ
-        #     if (size <= INV_MAX_SERIAL_READ) // Read in chunks of INV_MAX_SERIAL_READ
-        #     write_size = size;
-        #     else
-        #     write_size = INV_MAX_SERIAL_READ;
-        #     if ((memaddr & 0xff) + write_size > 0x100)
-        #     {
-        #     // Moved across a bank
-        #     write_size = (memaddr & 0xff) + write_size - 0x100;
-        #     }
-        #     result = inv_icm20948_read_mems(pdev, memaddr, write_size, data_cmp);
-        #     if (result != ICM_20948_Stat_Ok)
-        #     flag++;                               // Error, DMP not written correctly
-        # #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
-        #     memcpy_P(data_not_pg, data, write_size);  // Suggested by @HyperKokichi in Issue #63
-        #     if (memcmp(data_cmp, data_not_pg, write_size))
-        # #else
-        #     if (memcmp(data_cmp, data, write_size)) // Compare the data
-        # #endif
-        #     return ICM_20948_Stat_DMPVerifyFail;
-        #     data += write_size;
-        #     size -= write_size;
-        #     memaddr += write_size;
-        # }
 
         while size > 0:
-            read_size = max(0, min(size, self.INV_MAX_SERIAL_READ))
-            if ((memaddr & 0xff) + write_size > 0x100):
+            read_size = max(0, min(size, INV_MAX_SERIAL_READ))
+            if ((memaddr & 0xFF) + write_size > 0x100):
                 # Moved across a bank
-                read_size = (memaddr & 0xff) + write_size - 0x100
+                read_size = (memaddr & 0xFF) + write_size - 0x100
+
             data_cmp = self.readMems(memaddr, read_size)
             # Compare the data
             for i in range(0, read_size):
-                if vfw[i] != data[bytesRead + i]:
+                if data_cmp[i] != data[bytesRead + i]:
                     raise DMPFirmwareVerify('Firmware verification failed.')
+
             bytesRead += read_size
             size -= read_size
             memaddr += read_size
 
 
-    def setDMPstartAddress(self, addr):
-        # result = ICM_20948_set_bank(pdev, 2); // Set bank 2
-        # if (result != ICM_20948_Stat_Ok)
-        # {
-        #     return result;
-        # }
+    def setDMPstartAddress(self, addr: int = DMP_START_ADDRESS):
         self.setBank(2)
-
         # Write the sensor control bits into memory address AGB2_REG_PRGM_START_ADDRH
-        # result = ICM_20948_execute_w(pdev, AGB2_REG_PRGM_START_ADDRH, (uint8_t *)start_address, 2);
-        self.write(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, 'big'))
+        self._writeBlock(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, 'big'))
 
-    def writeDMPmems(self, reg, length, data):
-        # ICM_20948_Status_e result = ICM_20948_Stat_Ok;
-        # unsigned int bytesWritten = 0;
-        # unsigned int thisLen;
-        # unsigned char lBankSelected;
-        # unsigned char lStartAddrSelected;
-        bytesWritten = 0
-
-        # result = ICM_20948_set_bank(pdev, 0); // Set bank 0
-        self.setBank(0)
-
-        # lBankSelected = (reg >> 8);
-        lBankSelected = (reg >> 8)
-
-        # if (lBankSelected != pdev->_last_mems_bank)
-        # {
-        #     pdev->_last_mems_bank = lBankSelected;
-        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_BANK_SEL, &lBankSelected, 1);
-        #     if (result != ICM_20948_Stat_Ok)
-        #     {
-        #     return result;
-        #     }
-        # }
-        self.writeByte(self.AGB0_REG_MEM_BANK_SEL, lBankSelected)
-        
-        # while (bytesWritten < length)
-        # {
-        #     lStartAddrSelected = (reg & 0xff);
-
-        #     /* Sets the starting read or write address for the selected memory, inside of the selected page (see MEM_SEL Register).
-        #         Contents are changed after read or write of the selected memory.
-        #         This register must be written prior to each access to initialize the register to the proper starting address.
-        #         The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address. */
-
-        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_START_ADDR, &lStartAddrSelected, 1);
-
-        #     if (length - bytesWritten <= INV_MAX_SERIAL_WRITE)
-        #     thisLen = length - bytesWritten;
-        #     else
-        #     thisLen = INV_MAX_SERIAL_WRITE;
-
-        #     /* Write data */
-
-        #     result = ICM_20948_execute_w(pdev, AGB0_REG_MEM_R_W, (uint8_t *)&data[bytesWritten], thisLen);
-        #     if (result != ICM_20948_Stat_Ok)
-        #     {
-        #     return result;
-        #     }
-
-        #     bytesWritten += thisLen;
-        #     reg += thisLen;
-        # } 
-        while bytesWritten < length:
-            
-            lStartAddrSelected = (reg & 0xff)
-            self.writeByte(self.AGB0_REG_MEM_START_ADDR, lStartAddrSelected)
-
-            if (length - bytesWritten <= self.INV_MAX_SERIAL_WRITE):
-                thisLen = length - bytesWritten
-            else:
-                thisLen = self.INV_MAX_SERIAL_WRITE
-            
-            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
-            bytesWritten += thisLen
-            reg += thisLen
-    def resetDMP(self):
-        self.setBank(0)
-        ctrl = self.readByte(self.AGB0_REG_USER_CTRL)
-        ctrl = ctrl | 1 << 3
-        self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
-
-    def writeMems(self, reg, data):
+    def writeMems(self, reg: int, data: int):
         bytesWritten = 0
         length = len(data)
 
         self.setBank(0)
-        self.writeByte(self.AGB0_REG_MEM_BANK_SEL, reg >> 8)
+        self._writeByte(self.AGB0_REG_MEM_BANK_SEL, reg >> 8)
 
         while bytesWritten < length:
             lstartaddr = reg & 0xFF
@@ -1367,59 +1161,49 @@ class QwiicIcm20948(object):
             # Contents are changed after read or write of the selected memory.
             # This register must be written prior to each access to initialize the register to the proper starting address.
             # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
-            self.writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
-
-            if length - bytesWritten <= INV_MAX_SERIAL_WRITE:
-                thislen = length - bytesWritten
-            else:
-                thisLen = INV_MAX_SERIAL_WRITE
+            self._writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
+            thisLen = length - bytesWritten if length - bytesWritten <= INV_MAX_SERIAL_WRITE else INV_MAX_SERIAL_WRITE
 
             # Write data
-            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
+            self._writeBlock(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
             bytesWritten += thisLen
             reg += thisLen
 
-    def setGyroSF(self, div, level):
-        # // gyro_level should be set to 4 regardless of fullscale, due to the addition of API dmp_icm20648_set_gyro_fsr()
-        # gyro_level = 4;
+    def readMems(self, reg: int, length: int):
+        ret = []
+        bytesRead = 0
+
+        self.setBank(0)
+        self._writeByte(self.AGB0_REG_MEM_BANK_SEL, reg >> 8)
+
+        while bytesRead < length:
+            lstartaddr = reg & 0xFF
+            # Sets the starting read or write address for the selected memory, inside of the selected page (see MEM_SEL Register).
+		    # Contents are changed after read or write of the selected memory.
+		    # This register must be written prior to each access to initialize the register to the proper starting address.
+		    # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
+            self._writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
+            thisLen = length - bytesRead if length - bytesRead <= INV_MAX_SERIAL_READ else INV_MAX_SERIAL_READ
+
+            # Read data
+            ret.extend(self._readBlock(self.AGB0_REG_MEM_R_W, thisLen))
+            bytesRead += thisLen
+            reg += thisLen
+
+        return ret
+
+    def setGyroSF(self, div: int, level: int):
+        # gyro_level should be set to 4 regardless of fullscale, due to the addition of API dmp_icm20648_set_gyro_fsr()
         gyro_level = 4
 
-        # // First read the TIMEBASE_CORRECTION_PLL register from Bank 1
-        # int8_t pll; // Signed. Typical value is 0x18
-        # result = ICM_20948_set_bank(pdev, 1);
+        # First read the TIMEBASE_CORRECTION_PLL register from Bank 1
         self.setBank(1)
+        pll = self._readByte(self.AGB1_REG_TIMEBASE_CORRECTION_PLL)
 
-        # result = ICM_20948_execute_r(pdev, AGB1_REG_TIMEBASE_CORRECTION_PLL, (uint8_t *)&pll, 1);
-        # if (result != ICM_20948_Stat_Ok)
-        # {
-        #     return result;
-        # }
-        pll = self.readByte(self.AGB1_REG_TIMEBASE_CORRECTION_PLL)
-
-        # pdev->_gyroSFpll = pll; // Record the PLL value so we can debug print it
-        # // Now calculate the Gyro SF using code taken from the InvenSense example (inv_icm20948_set_gyro_sf)
-        # long gyro_sf;
-        # unsigned long long const MagicConstant = 264446880937391LL;
-        # unsigned long long const MagicConstantScale = 100000LL;
-        # unsigned long long ResultLL;
+        # Now calculate the Gyro SF using code taken from the InvenSense example (inv_icm20948_set_gyro_sf)
         MagicConstant = 264446880937391
         MagicConstantScale = 100000
 
-        # if (pll & 0x80)
-        # {
-        #     ResultLL = (MagicConstant * (long long)(1ULL << gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale);
-        # }
-        # else
-        # {
-        #     ResultLL = (MagicConstant * (long long)(1ULL << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale);
-        # }
-        #         In above deprecated FP version, worst case arguments can produce a result that overflows a signed long.
-        #         Here, for such cases, we emulate the FP behavior of setting the result to the maximum positive value, as
-        #         the compiler's conversion of a u64 to an s32 is simple truncation of the u64's high half, sadly....
-        # if (ResultLL > 0x7FFFFFFF)
-        #     gyro_sf = 0x7FFFFFFF;
-        # else
-        #     gyro_sf = (long)ResultLL;
         if pll & 0x80:
             ResultLL = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale)
         else:
@@ -1427,15 +1211,9 @@ class QwiicIcm20948(object):
 
         # saturate the result to prevent overflow
         gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
-        gyro_sf = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
 
-        # // Finally, write the value to the DMP GYRO_SF register
-        # unsigned char gyro_sf_reg[4];
-        # gyro_sf_reg[0] = (unsigned char)(gyro_sf >> 24);
-        # gyro_sf_reg[1] = (unsigned char)(gyro_sf >> 16);
-        # gyro_sf_reg[2] = (unsigned char)(gyro_sf >> 8);
-        # gyro_sf_reg[3] = (unsigned char)(gyro_sf & 0xff);
-        self.writeDMPmems(GYRO_SF, gyro_sf.to_bytes(4, 'big'))
+        # Finally, write the value to the DMP GYRO_SF register
+        self.writeMems(GYRO_SF, gyro_sf.to_bytes(4, 'big'))
 
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
@@ -1448,9 +1226,7 @@ class QwiicIcm20948(object):
         # false: clear the I2C_SLV0_CTRL I2C_SLV0_REG_DIS (we want to write the register value)
         # true: set the I2C_SLV0_CTRL I2C_SLV0_GRP bit to show the register pairing starts at byte 1+2 (copied from inv_icm20948_resume_akm)
         # true: set the I2C_SLV0_CTRL I2C_SLV0_BYTE_SW to byte-swap the data from the mag (copied from inv_icm20948_resume_akm)
-        # result = i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_RSV2, 10, true, true, false, true, true);
-        if not self.i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_RSV2, 10, True, True, False, True, True):
-            raise DMPInitFailure('Failed to set up I2C_SLV0 to do the ten byte reading')
+        self.i2cControllerConfigurePeripheral(0, MAG_AK09916_I2C_ADDR, AK09916_REG_RSV2, 10, True, True, False, True, True)
 
         # We also need to set up I2C_SLV1 to do the Single Measurement triggering:
         # 1: use I2C_SLV1
@@ -1463,9 +1239,7 @@ class QwiicIcm20948(object):
         # false: clear the I2C_SLV0_CTRL I2C_SLV0_GRP bit
         # false: clear the I2C_SLV0_CTRL I2C_SLV0_BYTE_SW bit
         # AK09916_mode_single: tell I2C_SLV1 to write the Single Measurement command each sample
-        # result = i2cControllerConfigurePeripheral(1, MAG_AK09916_I2C_ADDR, AK09916_REG_CNTL2, 1, false, true, false, false, false, AK09916_mode_single);
-        if not self.i2cControllerConfigurePeripheral(1, MAG_AK09916_I2C_ADDR, AK09916_REG_CNTL2, 1, False, True, False, False, False, AK09916_mode_single):
-            raise DMPInitFailure('Failed to set up I2C_SLV1 to do the Single Measurement triggering')
+        self.i2cControllerConfigurePeripheral(1, MAG_AK09916_I2C_ADDR, AK09916_REG_CNTL2, 1, False, True, False, False, False, AK09916_mode_single)
 
         # Set the I2C Master ODR configuration
         # It is not clear why we need to do this... But it appears to be essential! From the datasheet:
@@ -1475,125 +1249,87 @@ class QwiicIcm20948(object):
         #  If gyroscope is disabled, then all sensors (including I2C_MASTER) use the accelerometer ODR."
         # Since both gyro and accel are running, setting this register should have no effect. But it does. Maybe because the Gyro and Accel are placed in Low Power Mode (cycled)?
         # You can see by monitoring the Aux I2C pins that the next three lines reduce the bus traffic (magnetometer reads) from 1125Hz to the chosen rate: 68.75Hz in this case.
-        # result = setBank(3); if (result > worstResult) worstResult = result; // Select Bank 3
-        # uint8_t mstODRconfig = 0x04; // Set the ODR configuration to 1100/2^4 = 68.75Hz
-        # result = write(AGB3_REG_I2C_MST_ODR_CONFIG, &mstODRconfig, 1); if (result > worstResult) worstResult = result; // Write one byte to the I2C_MST_ODR_CONFIG register
         self.setBank(3)
         mstODRconfig = 0x04
-        self.writeByte(self.AGB3_REG_I2C_MST_ODR_CONFIG, mstODRconfig)
+        self._writeByte(self.AGB3_REG_I2C_MST_ODR_CONFIG, mstODRconfig)
 
         #  Configure clock source through PWR_MGMT_1
         # ICM_20948_Clock_Auto selects the best available clock source – PLL if ready, else use the Internal oscillator
-        # result = setClockSource(ICM_20948_Clock_Auto);
         self.setBank(0)
-        pwr_mgmt = self.readByte(self.AGB0_REG_PWR_MGMT_1) & 0xF8
+        pwr_mgmt = self._readByte(self.AGB0_REG_PWR_MGMT_1) & 0xF8
         pwr_mgmt = pwr_mgmt | 0x01
-        self.writeByte(self.AGB0_REG_PWR_MGMT_1, pwr_mgmt)
+        self._writeByte(self.AGB0_REG_PWR_MGMT_1, pwr_mgmt)
 
         #  Enable accel and gyro sensors through PWR_MGMT_2
         # Enable Accelerometer (all axes) and Gyroscope (all axes) by writing zero to PWR_MGMT_2
-        # result = setBank(0); if (result > worstResult) worstResult = result;                               // Select Bank 0
-        # uint8_t pwrMgmt2 = 0x40;                                                          // Set the reserved bit 6 (pressure sensor disable?)
-        # result = write(AGB0_REG_PWR_MGMT_2, &pwrMgmt2, 1); if (result > worstResult) worstResult = result; // Write one byte to the PWR_MGMT_2 register
         self.setBank(0)
-        self.writeByte(self.AGB0_REG_PWR_MGMT_2, 0x40)
+        self._writeByte(self.AGB0_REG_PWR_MGMT_2, 0x40) # Set the reserved bit 6 (pressure sensor disable?)
 
         #  Place _only_ I2C_Master in Low Power Mode (cycled) via LP_CONFIG
         #  The InvenSense Nucleo example initially puts the accel and gyro into low power mode too, but then later updates LP_CONFIG so only the I2C_Master is in Low Power Mode
-        # result = setSampleMode(ICM_20948_Internal_Mst, ICM_20948_Sample_Mode_Cycled); if (result > worstResult) worstResult = result;
         self.setSampleMode(ICM_20948_Internal_Mst, ICM_20948_Sample_Mode_Cycled)
 
         # Disable the FIFO
-        # result = enableFIFO(false); if (result > worstResult) worstResult = result;
         self.enableFIFO(False)
 
         #  Disable the DMP
-        # result = enableDMP(false); if (result > worstResult) worstResult = result;
         self.enableDMP(False)
 
         #  Set Gyro FSR (Full scale range) to 2000dps through GYRO_CONFIG_1
         # Set Accel FSR (Full scale range) to 4g through ACCEL_CONFIG
-        # ICM_20948_fss_t myFSS; // This uses a "Full Scale Settings" structure that can contain values for all configurable sensors
-        # myFSS.a = gpm4;        // (ICM_20948_ACCEL_CONFIG_FS_SEL_e)
-        # myFSS.g = dps2000;     // (ICM_20948_GYRO_CONFIG_1_FS_SEL_e)
-        # result = setFullScale((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), myFSS); if (result > worstResult) worstResult = result;
         self.setFullScaleRangeAccel(gpm4)
         self.setFullScaleRangeGyro(dps2000)
 
         #  The InvenSense Nucleo code also enables the gyro DLPF (but leaves GYRO_DLPFCFG set to zero = 196.6Hz (3dB))
         #  We found this by going through the SPI data generated by ZaneL's Teensy-ICM-20948 library byte by byte...
         # The gyro DLPF is enabled by default (GYRO_CONFIG_1 = 0x01) so the following line should have no effect, but we'll include it anyway
-        # result = enableDLPF(ICM_20948_Internal_Gyr, true); if (result > worstResult) worstResult = result;
         self.enableDlpfGyro(True)
 
         #  Turn off what goes into the FIFO through FIFO_EN_1, FIFO_EN_2
         # Stop the peripheral data from being written to the FIFO by writing zero to FIFO_EN_1
-        # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
-        # uint8_t zero = 0;
-        # result = write(AGB0_REG_FIFO_EN_1, &zero, 1); if (result > worstResult) worstResult = result;
         self.setBank(0)
-        self.writeByte(self.AGB0_REG_FIFO_EN_1, 0)
+        self._writeByte(self.AGB0_REG_FIFO_EN_1, 0)
 
         # Stop the accelerometer, gyro and temperature data from being written to the FIFO by writing zero to FIFO_EN_2
-        # result = write(AGB0_REG_FIFO_EN_2, &zero, 1); if (result > worstResult) worstResult = result;
-        self.writeByte(self.AGB0_REG_FIFO_EN_2, 0)
+        self._writeByte(self.AGB0_REG_FIFO_EN_2, 0)
 
         # Turn off data ready interrupt through INT_ENABLE_1
-        # result = intEnableRawDataReady(false); if (result > worstResult) worstResult = result;
-        int_en = self.readByte(self.AGB0_REG_INT_ENABLE_1)
+        int_en = self._readByte(self.AGB0_REG_INT_ENABLE_1)
         int_en = int_en & 0xFE
-        self.writeByte(self.AGB0_REG_INT_ENABLE_1, int_en)
+        self._writeByte(self.AGB0_REG_INT_ENABLE_1, int_en)
 
         # Reset FIFO through FIFO_RST
-        # result = resetFIFO(); if (result > worstResult) worstResult = result;
         self.resetFIFO()
 
         # Set gyro sample rate divider with GYRO_SMPLRT_DIV
         # Set accel sample rate divider with ACCEL_SMPLRT_DIV_2
-        # ICM_20948_smplrt_t mySmplrt;
-        # mySmplrt.g = 19; // ODR is computed as follows: 1.1 kHz/(1+GYRO_SMPLRT_DIV[7:0]). 19 = 55Hz. InvenSense Nucleo example uses 19 (0x13).
-        # mySmplrt.a = 19; // ODR is computed as follows: 1.125 kHz/(1+ACCEL_SMPLRT_DIV[11:0]). 19 = 56.25Hz. InvenSense Nucleo example uses 19 (0x13).
-        #result = setSampleRate((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), mySmplrt); if (result > worstResult) worstResult = result;
-        self.setSampleRateGyr(19)
-        self.setSampleRateAcc(19)
+        self.setSampleRateGyr(19) # ODR is computed as follows: 1.1 kHz/(1+GYRO_SMPLRT_DIV[7:0]). 19 = 55Hz. InvenSense Nucleo example uses 19 (0x13).
+        self.setSampleRateAcc(19) # ODR is computed as follows: 1.125 kHz/(1+ACCEL_SMPLRT_DIV[11:0]). 19 = 56.25Hz. InvenSense Nucleo example uses 19 (0x13).
 
         #  Setup DMP start address through PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
-        # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
         self.setDMPstartAddress()
 
         # // Now load the DMP firmware
-        # result = loadDMPFirmware(); if (result > worstResult) worstResult = result;
         self.loadDMPFirmware()
 
         # // Write the 2 byte Firmware Start Value to ICM PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
-        # result = setDMPstartAddress(); if (result > worstResult) worstResult = result; // Defaults to DMP_START_ADDRESS
         self.setDMPstartAddress()
 
         # // Set the Hardware Fix Disable register to 0x48
-        # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
-        # uint8_t fix = 0x48;
-        # result = write(AGB0_REG_HW_FIX_DISABLE, &fix, 1); if (result > worstResult) worstResult = result;
         self.setBank(0)
-        self.writeByte(self.AGB0_REG_HW_FIX_DISABLE, 0x48)
+        self._writeByte(self.AGB0_REG_HW_FIX_DISABLE, 0x48)
 
         # // Set the Single FIFO Priority Select register to 0xE4
-        # result = setBank(0); if (result > worstResult) worstResult = result; // Select Bank 0
-        # uint8_t fifoPrio = 0xE4;
-        # result = write(AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, &fifoPrio, 1); if (result > worstResult) worstResult = result;
         self.setBank(0)
-        self.writeByte(self.AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, 0xE4)
+        self._writeByte(self.AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, 0xE4)
 
         # // Configure Accel scaling to DMP
         # // The DMP scales accel raw data internally to align 1g as 2^25
         # // In order to align internal accel raw data 2^25 = 1g write 0x04000000 when FSR is 4g
-        # const unsigned char accScale[4] = {0x04, 0x00, 0x00, 0x00};
-        # result = writeDMPmems(ACC_SCALE, 4, &accScale[0]); if (result > worstResult) worstResult = result; // Write accScale to ACC_SCALE DMP register
-        self.writeDMPmems(ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
+        self.writeMems(ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
 
         # // In order to output hardware unit data as configured FSR write 0x00040000 when FSR is 4g
-        # const unsigned char accScale2[4] = {0x00, 0x04, 0x00, 0x00};
-        # result = writeDMPmems(ACC_SCALE2, 4, &accScale2[0]); if (result > worstResult) worstResult = result; // Write accScale2 to ACC_SCALE2 DMP register
-        self.writeDMPmems(ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
+        self.writeMems(ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
 
         # // Configure Compass mount matrix and scale to DMP
         # // The mount matrix write to DMP register is used to align the compass axes with accel/gyro.
@@ -1604,105 +1340,72 @@ class QwiicIcm20948(object):
         # // Z = raw_x * CPASS_MTX_20 + raw_y * CPASS_MTX_21 + raw_z * CPASS_MTX_22
         # // The AK09916 produces a 16-bit signed output in the range +/-32752 corresponding to +/-4912uT. 1uT = 6.66 ADU.
         # // 2^30 / 6.66666 = 161061273 = 0x9999999
-        # const unsigned char mountMultiplierZero[4] = {0x00, 0x00, 0x00, 0x00};
-        # const unsigned char mountMultiplierPlus[4] = {0x09, 0x99, 0x99, 0x99};  // Value taken from InvenSense Nucleo example
-        # const unsigned char mountMultiplierMinus[4] = {0xF6, 0x66, 0x66, 0x67}; // Value taken from InvenSense Nucleo example
-        # result = writeDMPmems(CPASS_MTX_00, 4, &mountMultiplierPlus[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_01, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_02, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_10, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_11, 4, &mountMultiplierMinus[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_12, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_20, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_21, 4, &mountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(CPASS_MTX_22, 4, &mountMultiplierMinus[0]); if (result > worstResult) worstResult = result;
         mountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         mountMultiplierPlus = [0x09, 0x99, 0x99, 0x99]
         mountMultiplierMinus = [0xF6, 0x66, 0x66, 0x67]
-        self.writeDMPmems(CPASS_MTX_00, mountMultiplierPlus)
-        self.writeDMPmems(CPASS_MTX_01, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_02, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_10, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_11, mountMultiplierMinus)
-        self.writeDMPmems(CPASS_MTX_12, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_20, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_21, mountMultiplierZero)
-        self.writeDMPmems(CPASS_MTX_22, mountMultiplierMinus)
+        self.writeMems(CPASS_MTX_00, mountMultiplierPlus)
+        self.writeMems(CPASS_MTX_01, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_02, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_10, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_11, mountMultiplierMinus)
+        self.writeMems(CPASS_MTX_12, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_20, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_21, mountMultiplierZero)
+        self.writeMems(CPASS_MTX_22, mountMultiplierMinus)
 
         # // Configure the B2S Mounting Matrix
-        # const unsigned char b2sMountMultiplierZero[4] = {0x00, 0x00, 0x00, 0x00};
-        # const unsigned char b2sMountMultiplierPlus[4] = {0x40, 0x00, 0x00, 0x00}; // Value taken from InvenSense Nucleo example
-        # result = writeDMPmems(B2S_MTX_00, 4, &b2sMountMultiplierPlus[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_01, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_02, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_10, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_11, 4, &b2sMountMultiplierPlus[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_12, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_20, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_21, 4, &b2sMountMultiplierZero[0]); if (result > worstResult) worstResult = result;
-        # result = writeDMPmems(B2S_MTX_22, 4, &b2sMountMultiplierPlus[0]); if (result > worstResult) worstResult = result;
         b2sMountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         b2sMountMultiplierPlus = [0x40, 0x00, 0x00, 0x00]
-        self.writeDMPmems(B2S_MTX_00, b2sMountMultiplierPlus)
-        self.writeDMPmems(B2S_MTX_01, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_02, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_10, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_11, b2sMountMultiplierPlus)
-        self.writeDMPmems(B2S_MTX_12, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_20, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_21, b2sMountMultiplierZero)
-        self.writeDMPmems(B2S_MTX_22, b2sMountMultiplierPlus)
+        self.writeMems(B2S_MTX_00, b2sMountMultiplierPlus)
+        self.writeMems(B2S_MTX_01, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_02, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_10, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_11, b2sMountMultiplierPlus)
+        self.writeMems(B2S_MTX_12, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_20, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_21, b2sMountMultiplierZero)
+        self.writeMems(B2S_MTX_22, b2sMountMultiplierPlus)
 
         # // Configure the DMP Gyro Scaling Factor
         # // @param[in] gyro_div Value written to GYRO_SMPLRT_DIV register, where
         # //            0=1125Hz sample rate, 1=562.5Hz sample rate, ... 4=225Hz sample rate, ...
         # //            10=102.2727Hz sample rate, ... etc.
         # // @param[in] gyro_level 0=250 dps, 1=500 dps, 2=1000 dps, 3=2000 dps
-        # result = setGyroSF(19, 3); if (result > worstResult) worstResult = result; // 19 = 55Hz (see above), 3 = 2000dps (see above)
-        self.setGyroSF(19, 3)
+        self.setGyroSF(19, 3) # 19 = 55Hz (see above), 3 = 2000dps (see above)
 
         # // Configure the Gyro full scale
         # // 2000dps : 2^28
         # // 1000dps : 2^27
         # //  500dps : 2^26
         # //  250dps : 2^25
-        # const unsigned char gyroFullScale[4] = {0x10, 0x00, 0x00, 0x00}; // 2000dps : 2^28
-        # result = writeDMPmems(GYRO_FULLSCALE, 4, &gyroFullScale[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00])
+        self.writeMems(GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00]) # 2000dps : 2^28
 
         # // Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
-        # const unsigned char accelOnlyGain[4] = {0x03, 0xA4, 0x92, 0x49}; // 56Hz
-        # //const unsigned char accelOnlyGain[4] = {0x00, 0xE8, 0xBA, 0x2E}; // 225Hz
-        # //const unsigned char accelOnlyGain[4] = {0x01, 0xD1, 0x74, 0x5D}; // 112Hz
-        # result = writeDMPmems(ACCEL_ONLY_GAIN, 4, &accelOnlyGain[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49])
+        # {0x03, 0xA4, 0x92, 0x49}; // 56Hz
+        # {0x00, 0xE8, 0xBA, 0x2E}; // 225Hz
+        # {0x01, 0xD1, 0x74, 0x5D}; // 112Hz
+        self.writeMems(ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49]) # 56Hz
 
         # // Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
-        # const unsigned char accelAlphaVar[4] = {0x34, 0x92, 0x49, 0x25}; // 56Hz
-        # //const unsigned char accelAlphaVar[4] = {0x3D, 0x27, 0xD2, 0x7D}; // 225Hz
-        # //const unsigned char accelAlphaVar[4] = {0x3A, 0x49, 0x24, 0x92}; // 112Hz
-        # result = writeDMPmems(ACCEL_ALPHA_VAR, 4, &accelAlphaVar[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25])
+        # {0x34, 0x92, 0x49, 0x25}; // 56Hz
+        # {0x3D, 0x27, 0xD2, 0x7D}; // 225Hz
+        # {0x3A, 0x49, 0x24, 0x92}; // 112Hz
+        self.writeMems(ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25]) # 56Hz
 
         # // Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
-        # const unsigned char accelAVar[4] = {0x0B, 0x6D, 0xB6, 0xDB}; // 56Hz
-        # //const unsigned char accelAVar[4] = {0x02, 0xD8, 0x2D, 0x83}; // 225Hz
-        # //const unsigned char accelAVar[4] = {0x05, 0xB6, 0xDB, 0x6E}; // 112Hz
-        # result = writeDMPmems(ACCEL_A_VAR, 4, &accelAVar[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
+        # {0x0B, 0x6D, 0xB6, 0xDB}; // 56Hz
+        # {0x02, 0xD8, 0x2D, 0x83}; // 225Hz
+        # {0x05, 0xB6, 0xDB, 0x6E}; // 112Hz
+        self.writeMems(ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
 
         # // Configure the Accel Cal Rate
-        # const unsigned char accelCalRate[4] = {0x00, 0x00}; // Value taken from InvenSense Nucleo example
-        # result = writeDMPmems(ACCEL_CAL_RATE, 2, &accelCalRate[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(ACCEL_CAL_RATE, [0x00, 0x00])
+        self.writeMems(ACCEL_CAL_RATE, [0x00, 0x00]) # Value taken from InvenSense Nucleo example
 
         # // Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
         # // Let's set the Compass Time Buffer to 69 (Hz).
-        # const unsigned char compassRate[2] = {0x00, 0x45}; // 69Hz
-        # result = writeDMPmems(CPASS_TIME_BUFFER, 2, &compassRate[0]); if (result > worstResult) worstResult = result;
-        self.writeDMPmems(CPASS_TIME_BUFFER, [0x00, 0x45])
+        self.writeMems(CPASS_TIME_BUFFER, [0x00, 0x45]) # 69Hz
 
-    def enableDMPSensor(self, sensor, enable = True):
+    def enableDMPSensor(self, sensor: inv_icm20948_sensor, enable: bool = True):
         if not self.dmp:
             raise DMPUninitialized('DMP not properly initialized!')
 
@@ -1779,7 +1482,7 @@ class QwiicIcm20948(object):
         # Put chip into low power state
         self.lowPower(True)
 
-    def setDMPODRrate(self, reg, interval):
+    def setDMPODRrate(self, reg: ODR_REGS, interval: int):
         # Set the ODR registers and clear the ODR counter
 
         # In order to set an ODR for a given sensor data, write 2-byte value to DMP using key defined above for a particular sensor.
@@ -1801,41 +1504,8 @@ class QwiicIcm20948(object):
         odr_reg_val = interval.to_bytes(2, byteorder='big')
         odr_count_zero = [0, 0]
 
-        if reg == DMP_ODR_REG_CPASS_CALIBR:
-            self.writeMems(ODR_CPASS_CALIBR, odr_reg_val)
-            self.writeMems(ODR_CNTR_CPASS_CALIBR, odr_count_zero)
-        elif reg == DMP_ODR_REG_GYRO_CALIBR:
-            self.writeMems(ODR_GYRO_CALIBR, odr_reg_val)
-            self.writeMems(ODR_CNTR_GYRO_CALIBR, odr_count_zero)
-        elif reg == DMP_ODR_REG_PRESSURE:
-            self.writeMems(ODR_PRESSURE, odr_reg_val)
-            self.writeMems(ODR_CNTR_PRESSURE, odr_count_zero)
-        elif reg == DMP_ODR_REG_GEOMAG:
-            self.writeMems(ODR_GEOMAG, odr_reg_val)
-            self.writeMems(ODR_CNTR_GEOMAG, odr_count_zero)
-        elif reg == DMP_ODR_REG_PQUAT6:
-            self.writeMems(ODR_PQUAT6, odr_reg_val)
-            self.writeMems(ODR_CNTR_PQUAT6, odr_count_zero)
-        elif reg == DMP_ODR_REG_QUAT9:
-            self.writeMems(ODR_QUAT9, odr_reg_val)
-            self.writeMems(ODR_CNTR_QUAT9, odr_count_zero)
-        elif reg == DMP_ODR_REG_QUAT6:
-            self.writeMems(ODR_QUAT6, odr_reg_val)
-            self.writeMems(ODR_CNTR_QUAT6, odr_count_zero)
-        elif reg == DMP_ODR_REG_ALS:
-            self.writeMems(ODR_ALS, odr_reg_val)
-            self.writeMems(ODR_CNTR_ALS, odr_count_zero)
-        elif reg == DMP_ODR_REG_CPASS:
-            self.writeMems(ODR_CPASS, odr_reg_val)
-            self.writeMems(ODR_CNTR_CPASS, odr_count_zero)
-        elif reg == DMP_ODR_REG_GYRO:
-            self.writeMems(ODR_GYRO, odr_reg_val)
-            self.writeMems(ODR_CNTR_GYRO, odr_count_zero)
-        elif reg == DMP_ODR_REG_ACCEL:
-            self.writeMems(ODR_ACCEL, odr_reg_val)
-            self.writeMems(ODR_CNTR_ACCEL, odr_count_zero)
-        else:
-            raise ValueError('Invalid register requested.')
+        self.writeMems(reg.value[0], odr_reg_val)
+        self.writeMems(reg.value[1], odr_count_zero)
 
         # Put chip into low power state
         self.lowPower(True)
@@ -1846,27 +1516,27 @@ class QwiicIcm20948(object):
 
         def getFIFOcount():
             self.setBank(0)
+            ctrl = int.from_bytes(self._readBlock(self.AGB0_REG_FIFO_COUNT_H, 2), byteorder='big')
+
             # Datasheet says "FIFO_CNT[12:8]"
-            ctrlh = self.readByte(self.AGB0_REG_FIFO_COUNT_H) & 0x1F
-            ctrll = self.readByte(self.AGB0_REG_FIFO_COUNT_L)
+            return ctrl & 0x1F
 
-            return (ctrlh << 8) | ctrll
-
-        def readFIFO(len):
+        def readFIFO(len: int):
+            nonlocal fifo_count
             # Check if we need to read the FIFO count again
             if fifo_count < len:
                 fifo_count = getFIFOcount()
                 if fifo_count < len: # Bail if fifo count is still < len
-                    raise DMPFIFOUnderflow('Not enough data available in FIFO.')
+                    raise DMPFIFOUnderflow(f'Not enough data available in FIFO {fifo_count} < {len}.')
 
             fifo_count -= len
             self.setBank(0)
-            return self.read(self.AGB0_REG_FIFO_R_W, len)
+            return self._readBlock(self.AGB0_REG_FIFO_R_W, len)
 
-        def processSensors(header, sensor_list):
+        def processSensors(header: int, sensor_list: list):
             for s in sensor_list:
                 if header & s.mask:
-                    raw = readFIFO(fifo_count, ctypes.sizeof(s))
+                    raw = bytes(readFIFO(ctypes.sizeof(s)))
                     data = s(*unpack(s.layout, raw))
                     ret[s.__name__] = data.asdict()
 

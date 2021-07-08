@@ -96,6 +96,6 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    py_modules=["qwiic_icm20948"],
-
+    # py_modules=["qwiic_icm20948"],
+    packages=find_packages(),
 )

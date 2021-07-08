@@ -1,5 +1,5 @@
 import ctypes
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 
 # define custom exceptions
@@ -23,11 +23,16 @@ class DMPSensorNotSupported(Exception):
     pass
 
 
+class DMPFirmwareVerify(Exception):
+    """ Raised when the verification of firmware fails during load """
+    pass
+
+
 DMP_START_ADDRESS = 0x1000
 DMP_MEM_BANK_SIZE = 256
 DMP_LOAD_START = 0x90
 
-CFG_FIFO_SIZE = (4222)
+CFG_FIFO_SIZE = 4222
 
 # AGB0_REG_DMP_INT_STATUS bit definitions
 BIT_WAKE_ON_MOTION_INT = 0x08
@@ -297,17 +302,19 @@ Q1_QUAT6 = (33 * 16 + 4)
 Q2_QUAT6 = (33 * 16 + 8)
 Q3_QUAT6 = (33 * 16 + 12)
 
-DMP_ODR_REG_ACCEL = ODR_ACCEL               # ODR_ACCEL Register for accel ODR
-DMP_ODR_REG_GYRO = ODR_GYRO                 # ODR_GYRO Register for gyro ODR
-DMP_ODR_REG_CPASS = ODR_CPASS               # ODR_CPASS Register for compass ODR
-DMP_ODR_REG_ALS = ODR_ALS                   # ODR_ALS Register for ALS ODR
-DMP_ODR_REG_QUAT6 = ODR_QUAT6               # ODR_QUAT6 Register for 6-axis quaternion ODR
-DMP_ODR_REG_QUAT9 = ODR_QUAT9               # ODR_QUAT9 Register for 9-axis quaternion ODR
-DMP_ODR_REG_PQUAT6 = ODR_PQUAT6             # ODR_PQUAT6 Register for 6-axis pedometer quaternion ODR
-DMP_ODR_REG_GEOMAG = ODR_GEOMAG             # ODR_GEOMAG Register for Geomag RV ODR
-DMP_ODR_REG_PRESSURE = ODR_PRESSURE         # ODR_PRESSURE Register for pressure ODR
-DMP_ODR_REG_GYRO_CALIBR = ODR_GYRO_CALIBR   # ODR_GYRO_CALIBR Register for calibrated gyro ODR
-DMP_ODR_REG_CPASS_CALIBR = ODR_CPASS_CALIBR # ODR_CPASS_CALIBR Register for calibrated compass ODR
+
+class ODR_REGS(Enum):
+    DMP_ODR_REG_ACCEL = (ODR_ACCEL, ODR_CNTR_ACCEL)
+    DMP_ODR_REG_GYRO = (ODR_GYRO, ODR_CNTR_GYRO)
+    DMP_ODR_REG_CPASS = (ODR_CPASS, ODR_CNTR_CPASS)
+    DMP_ODR_REG_ALS = (ODR_ALS, ODR_CNTR_ALS)
+    DMP_ODR_REG_QUAT6 = (ODR_QUAT6, ODR_CNTR_QUAT6)
+    DMP_ODR_REG_QUAT9 = (ODR_QUAT9, ODR_CNTR_QUAT9)
+    DMP_ODR_REG_PQUAT6 = (ODR_PQUAT6, ODR_CNTR_PQUAT6)
+    DMP_ODR_REG_GEOMAG = (ODR_GEOMAG, ODR_CNTR_GEOMAG)
+    DMP_ODR_REG_PRESSURE = (ODR_PRESSURE, ODR_CNTR_PRESSURE)
+    DMP_ODR_REG_GYRO_CALIBR = (ODR_GYRO_CALIBR, ODR_CNTR_GYRO_CALIBR)
+    DMP_ODR_REG_CPASS_CALIBR = (ODR_CPASS_CALIBR, ODR_CNTR_CPASS_CALIBR)
 
 
 # Sensor identifier for control function
@@ -654,6 +661,7 @@ ICM_20948_DMP_FOOTER_BYTES = 2
 ICM_20948_DMP_MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from the FIFO in one go
 
 INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data lines
+INV_MAX_SERIAL_READ = 16 # Max size that can be read across I2C or SPI data lines
 
 
 class BaseStruct(ctypes.Structure):
@@ -664,7 +672,7 @@ class BaseStruct(ctypes.Structure):
         for field, _ in self._fields_:
             value = getattr(self, field)
             # if the type is not a primitive and it evaluates to False ...
-            if (type(value) not in [int, long, float, bool]) and not bool(value):
+            if (type(value) not in [int, float, bool]) and not bool(value):
                 # it's a null pointer
                 value = None
             elif hasattr(value, "_length_") and hasattr(value, "_type_"):
@@ -713,9 +721,9 @@ class ALS(BaseStruct):
     mask = DMP_HEADER_BITMAP_ALS
     layout = '!xHHHx'
     _fields_ = [
-        ('Ch0DATA', ctypes.c_int16),
-        ('Ch1DATA', ctypes.c_int16),
-        ('PDATA', ctypes.c_int16),
+        ('Ch0DATA', ctypes.c_uint16),
+        ('Ch1DATA', ctypes.c_uint16),
+        ('PDATA', ctypes.c_uint16),
     ]
 
 #     # The 6-Axis and 9-axis Quaternion outputs each consist of 12 bytes of data.
@@ -737,37 +745,37 @@ class Quat6(BaseStruct):
         ('Q3', ctypes.c_int32),
     ]
 
+    def asdict(self):
+        div = 1073741824.0
+        return {
+            'Q1': self.Q1 / div,
+            'Q2': self.Q2 / div,
+            'Q3': self.Q3 / div,
+        }
 
-class Quat9(BaseStruct):
+
+class Quat9(Quat6):
     mask = DMP_HEADER_BITMAP_QUAT9
     layout = '!iiih'
     _fields_ = [
-        ('Q1', ctypes.c_int32),
-        ('Q2', ctypes.c_int32),
-        ('Q3', ctypes.c_int32),
+        # Q1, Q2, Q3 inherited from Quat6
         ('Accuracy', ctypes.c_int16),
     ]
 
+    def asdict(self):
+        ret = super().asdict()
+        ret['Accuracy'] = self.Accuracy
+        return ret
 
-class PQuat6(BaseStruct):
+
+class PQuat6(Quat6):
     mask = DMP_HEADER_BITMAP_PQUAT6
     layout = '!iii'
-    _fields_ = [
-        ('Q1', ctypes.c_int32),
-        ('Q2', ctypes.c_int32),
-        ('Q3', ctypes.c_int32),
-    ]
 
 
-class Geomag(BaseStruct):
+class Geomag(Quat9):
     mask = DMP_HEADER_BITMAP_GEOMAG
     layout = '!iiih'
-    _fields_ = [
-        ('Q1', ctypes.c_int32),
-        ('Q2', ctypes.c_int32),
-        ('Q3', ctypes.c_int32),
-        ('Accuracy', ctypes.c_int16),
-    ]
 
 
 class Pressure(BaseStruct):
@@ -835,7 +843,7 @@ class Fsync_Delay_Time(BaseStruct):
     mask = DMP_HEADER2_BITMAP_FSYNC
     layout = '!H'
     _fields_ = [
-        ('Delay', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
+        ('Value', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
     ]
 
 
@@ -861,7 +869,7 @@ class Activity_Recognition(BaseStruct):
     mask = DMP_HEADER2_BITMAP_ACTIVITY_RECOG
     layout = '!BBI'
     _fields_ = [
-        ('State_Start', ctypes.c_uint8)
+        ('State_Start', ctypes.c_uint8),
         ('State_End', ctypes.c_uint8),
         ('Timestamp', ctypes.c_uint32),
     ]
@@ -888,7 +896,7 @@ class Secondary_On_Off(BaseStruct):
 class Footer(BaseStruct):
     layout = '!H'
     _fields_ = [
-        ('footer', ctypes.c_uint16),
+        ('Value', ctypes.c_uint16),
     ]
 
 HEADER_SENSORS = [
