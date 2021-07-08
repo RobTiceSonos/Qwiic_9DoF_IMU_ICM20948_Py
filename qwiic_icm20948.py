@@ -1113,7 +1113,7 @@ class QwiicIcm20948(object):
             write_size = max(0, min(size, INV_MAX_SERIAL_WRITE))
             if ((memaddr & 0xFF) + write_size > 0x100):
                 # Moved across a bank
-                write_size = (memaddr & 0xff) + write_size - 0x100
+                write_size = (memaddr & 0xFF) + write_size - 0x100
 
             self.writeMems(memaddr, data[bytesWritten:bytesWritten + write_size])
 
@@ -1309,37 +1309,37 @@ class QwiicIcm20948(object):
         #  Setup DMP start address through PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         self.setDMPstartAddress()
 
-        # // Now load the DMP firmware
+        # Now load the DMP firmware
         self.loadDMPFirmware()
 
-        # // Write the 2 byte Firmware Start Value to ICM PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
+        # Write the 2 byte Firmware Start Value to ICM PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         self.setDMPstartAddress()
 
-        # // Set the Hardware Fix Disable register to 0x48
+        # Set the Hardware Fix Disable register to 0x48
         self.setBank(0)
         self._writeByte(self.AGB0_REG_HW_FIX_DISABLE, 0x48)
 
-        # // Set the Single FIFO Priority Select register to 0xE4
+        # Set the Single FIFO Priority Select register to 0xE4
         self.setBank(0)
         self._writeByte(self.AGB0_REG_SINGLE_FIFO_PRIORITY_SEL, 0xE4)
 
-        # // Configure Accel scaling to DMP
-        # // The DMP scales accel raw data internally to align 1g as 2^25
-        # // In order to align internal accel raw data 2^25 = 1g write 0x04000000 when FSR is 4g
+        # Configure Accel scaling to DMP
+        # The DMP scales accel raw data internally to align 1g as 2^25
+        # In order to align internal accel raw data 2^25 = 1g write 0x04000000 when FSR is 4g
         self.writeMems(ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
 
-        # // In order to output hardware unit data as configured FSR write 0x00040000 when FSR is 4g
+        # In order to output hardware unit data as configured FSR write 0x00040000 when FSR is 4g
         self.writeMems(ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
 
-        # // Configure Compass mount matrix and scale to DMP
-        # // The mount matrix write to DMP register is used to align the compass axes with accel/gyro.
-        # // This mechanism is also used to convert hardware unit to uT. The value is expressed as 1uT = 2^30.
-        # // Each compass axis will be converted as below:
-        # // X = raw_x * CPASS_MTX_00 + raw_y * CPASS_MTX_01 + raw_z * CPASS_MTX_02
-        # // Y = raw_x * CPASS_MTX_10 + raw_y * CPASS_MTX_11 + raw_z * CPASS_MTX_12
-        # // Z = raw_x * CPASS_MTX_20 + raw_y * CPASS_MTX_21 + raw_z * CPASS_MTX_22
-        # // The AK09916 produces a 16-bit signed output in the range +/-32752 corresponding to +/-4912uT. 1uT = 6.66 ADU.
-        # // 2^30 / 6.66666 = 161061273 = 0x9999999
+        # Configure Compass mount matrix and scale to DMP
+        # The mount matrix write to DMP register is used to align the compass axes with accel/gyro.
+        # This mechanism is also used to convert hardware unit to uT. The value is expressed as 1uT = 2^30.
+        # Each compass axis will be converted as below:
+        # X = raw_x * CPASS_MTX_00 + raw_y * CPASS_MTX_01 + raw_z * CPASS_MTX_02
+        # Y = raw_x * CPASS_MTX_10 + raw_y * CPASS_MTX_11 + raw_z * CPASS_MTX_12
+        # Z = raw_x * CPASS_MTX_20 + raw_y * CPASS_MTX_21 + raw_z * CPASS_MTX_22
+        # The AK09916 produces a 16-bit signed output in the range +/-32752 corresponding to +/-4912uT. 1uT = 6.66 ADU.
+        # 2^30 / 6.66666 = 161061273 = 0x9999999
         mountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         mountMultiplierPlus = [0x09, 0x99, 0x99, 0x99]
         mountMultiplierMinus = [0xF6, 0x66, 0x66, 0x67]
@@ -1353,7 +1353,7 @@ class QwiicIcm20948(object):
         self.writeMems(CPASS_MTX_21, mountMultiplierZero)
         self.writeMems(CPASS_MTX_22, mountMultiplierMinus)
 
-        # // Configure the B2S Mounting Matrix
+        # Configure the B2S Mounting Matrix
         b2sMountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         b2sMountMultiplierPlus = [0x40, 0x00, 0x00, 0x00]
         self.writeMems(B2S_MTX_00, b2sMountMultiplierPlus)
@@ -1366,43 +1366,43 @@ class QwiicIcm20948(object):
         self.writeMems(B2S_MTX_21, b2sMountMultiplierZero)
         self.writeMems(B2S_MTX_22, b2sMountMultiplierPlus)
 
-        # // Configure the DMP Gyro Scaling Factor
-        # // @param[in] gyro_div Value written to GYRO_SMPLRT_DIV register, where
-        # //            0=1125Hz sample rate, 1=562.5Hz sample rate, ... 4=225Hz sample rate, ...
-        # //            10=102.2727Hz sample rate, ... etc.
-        # // @param[in] gyro_level 0=250 dps, 1=500 dps, 2=1000 dps, 3=2000 dps
+        # Configure the DMP Gyro Scaling Factor
+        # @param[in] gyro_div Value written to GYRO_SMPLRT_DIV register, where
+        #            0=1125Hz sample rate, 1=562.5Hz sample rate, ... 4=225Hz sample rate, ...
+        #            10=102.2727Hz sample rate, ... etc.
+        # @param[in] gyro_level 0=250 dps, 1=500 dps, 2=1000 dps, 3=2000 dps
         self.setGyroSF(19, 3) # 19 = 55Hz (see above), 3 = 2000dps (see above)
 
-        # // Configure the Gyro full scale
-        # // 2000dps : 2^28
-        # // 1000dps : 2^27
-        # //  500dps : 2^26
-        # //  250dps : 2^25
+        # Configure the Gyro full scale
+        # 2000dps : 2^28
+        # 1000dps : 2^27
+        #  500dps : 2^26
+        #  250dps : 2^25
         self.writeMems(GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00]) # 2000dps : 2^28
 
-        # // Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
-        # {0x03, 0xA4, 0x92, 0x49}; // 56Hz
-        # {0x00, 0xE8, 0xBA, 0x2E}; // 225Hz
-        # {0x01, 0xD1, 0x74, 0x5D}; // 112Hz
+        # Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
+        # {0x03, 0xA4, 0x92, 0x49}; 56Hz
+        # {0x00, 0xE8, 0xBA, 0x2E}; 225Hz
+        # {0x01, 0xD1, 0x74, 0x5D}; 112Hz
         self.writeMems(ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49]) # 56Hz
 
-        # // Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
-        # {0x34, 0x92, 0x49, 0x25}; // 56Hz
-        # {0x3D, 0x27, 0xD2, 0x7D}; // 225Hz
-        # {0x3A, 0x49, 0x24, 0x92}; // 112Hz
+        # Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
+        # {0x34, 0x92, 0x49, 0x25}; 56Hz
+        # {0x3D, 0x27, 0xD2, 0x7D}; 225Hz
+        # {0x3A, 0x49, 0x24, 0x92}; 112Hz
         self.writeMems(ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25]) # 56Hz
 
-        # // Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
-        # {0x0B, 0x6D, 0xB6, 0xDB}; // 56Hz
-        # {0x02, 0xD8, 0x2D, 0x83}; // 225Hz
-        # {0x05, 0xB6, 0xDB, 0x6E}; // 112Hz
+        # Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
+        # {0x0B, 0x6D, 0xB6, 0xDB}; 56Hz
+        # {0x02, 0xD8, 0x2D, 0x83}; 225Hz
+        # {0x05, 0xB6, 0xDB, 0x6E}; 112Hz
         self.writeMems(ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
 
-        # // Configure the Accel Cal Rate
+        # Configure the Accel Cal Rate
         self.writeMems(ACCEL_CAL_RATE, [0x00, 0x00]) # Value taken from InvenSense Nucleo example
 
-        # // Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
-        # // Let's set the Compass Time Buffer to 69 (Hz).
+        # Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
+        # Let's set the Compass Time Buffer to 69 (Hz).
         self.writeMems(CPASS_TIME_BUFFER, [0x00, 0x45]) # 69Hz
 
     def enableDMPSensor(self, sensor: inv_icm20948_sensor, enable: bool = True):
