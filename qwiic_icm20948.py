@@ -1180,23 +1180,16 @@ class QwiicIcm20948(object):
             ctrl = ctrl & 0x7F
         self.writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
-    def loadDMPFirmware(self, data_start, size_start, load_addr):
-        # int write_size;
-        # ICM_20948_Status_e result = ICM_20948_Stat_Ok;
-        # unsigned short memaddr;
-        # const unsigned char *data;
-        # unsigned short size;
-        # unsigned char data_cmp[INV_MAX_SERIAL_READ];
-        # int flag = 0;
+    def loadDMPFirmware(self, data = dmp3_image, load_addr = DMP_LOAD_START):
+        # Make sure chip is awake
+        self.sleep(False)
+        # Make sure chip is not in low power state
+        self.lowPower(False)
 
-        # // Write DMP memory
-
-        # data = data_start;
-        # size = size_start;
-        # memaddr = load_addr;
-        size = size_start
+        # Write DMP memory
+        size = len(data)
         memaddr = load_addr
-        data = data_start
+        bytesWritten = 0
 
         # #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
         # unsigned char data_not_pg[INV_MAX_SERIAL_READ]; // Suggested by @HyperKokichi in Issue #63
@@ -1223,9 +1216,8 @@ class QwiicIcm20948(object):
             if ((memaddr & 0xff) + write_size > 0x100):
                 # Moved across a bank
                 write_size = (memaddr & 0xff) + write_size - 0x100
-            self.writeDMPmems(memaddr, write_size, data)
-            self.write(memaddr, data)
-            data += write_size
+            self.writeDMPmems(memaddr, data[bytesWritten:bytesWritten + write_size])
+            bytesWritten += write_size
             size -= write_size
             memaddr += write_size
 
@@ -1234,9 +1226,9 @@ class QwiicIcm20948(object):
         # data = data_start;
         # size = size_start;
         # memaddr = load_addr;
-        size = size_start
+        size = len(data)
         memaddr = load_addr
-        data = data_start
+        bytesRead = 0
         # while (size > 0)
         # {
         #     //write_size = min(size, INV_MAX_SERIAL_READ); // Read in chunks of INV_MAX_SERIAL_READ
@@ -1265,17 +1257,18 @@ class QwiicIcm20948(object):
         # }
 
         while size > 0:
-            write_size = max(0, min(size, self.INV_MAX_SERIAL_READ))
+            read_size = max(0, min(size, self.INV_MAX_SERIAL_READ))
             if ((memaddr & 0xff) + write_size > 0x100):
                 # Moved across a bank
-                write_size = (memaddr & 0xff) + write_size - 0x100
-            data_cmp = self.read(memaddr, write_size)
-            if data != data_cmp:
-                # TODO something angry?
-                return 1
-            data += write_size
-            size -= write_size
-            memaddr += write_size
+                read_size = (memaddr & 0xff) + write_size - 0x100
+            data_cmp = self.readMems(memaddr, read_size)
+            # Compare the data
+            for i in range(0, read_size):
+                if vfw[i] != data[bytesRead + i]:
+                    raise DMPFirmwareVerify('Firmware verification failed.')
+            bytesRead += read_size
+            size -= read_size
+            memaddr += read_size
 
 
     def setDMPstartAddress(self, addr):
@@ -1288,8 +1281,7 @@ class QwiicIcm20948(object):
 
         # Write the sensor control bits into memory address AGB2_REG_PRGM_START_ADDRH
         # result = ICM_20948_execute_w(pdev, AGB2_REG_PRGM_START_ADDRH, (uint8_t *)start_address, 2);
-        self.writeByte(self.AGB2_REG_PRGM_START_ADDRH, addr >> 8)
-        self.writeByte(self.AGB2_REG_PRGM_START_ADDRL, addr & 0xff)
+        self.write(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, 'big'))
 
     def writeDMPmems(self, reg, length, data):
         # ICM_20948_Status_e result = ICM_20948_Stat_Ok;
@@ -1353,7 +1345,7 @@ class QwiicIcm20948(object):
             else:
                 thisLen = self.INV_MAX_SERIAL_WRITE
             
-            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten])
+            self.write(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
             bytesWritten += thisLen
             reg += thisLen
     def resetDMP(self):
@@ -1428,6 +1420,13 @@ class QwiicIcm20948(object):
         #     gyro_sf = 0x7FFFFFFF;
         # else
         #     gyro_sf = (long)ResultLL;
+        if pll & 0x80:
+            ResultLL = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale)
+        else:
+            ResultLL = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
+
+        # saturate the result to prevent overflow
+        gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
         gyro_sf = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
 
         # // Finally, write the value to the DMP GYRO_SF register
@@ -1436,14 +1435,7 @@ class QwiicIcm20948(object):
         # gyro_sf_reg[1] = (unsigned char)(gyro_sf >> 16);
         # gyro_sf_reg[2] = (unsigned char)(gyro_sf >> 8);
         # gyro_sf_reg[3] = (unsigned char)(gyro_sf & 0xff);
-        gyro_sf_reg = [4]
-        gyro_sf_reg[0] = (gyro_sf >> 24)
-        gyro_sf_reg[1] = (gyro_sf >> 16)
-        gyro_sf_reg[2] = (gyro_sf >> 8)
-        gyro_sf_reg[3] = (gyro_sf & 0xff)
-
-        # result = inv_icm20948_write_mems(pdev, GYRO_SF, 4, (const unsigned char *)&gyro_sf_reg);
-        self.writeDMPmems(self.GYRO_SF, 4, gyro_sf_reg)
+        self.writeDMPmems(GYRO_SF, gyro_sf.to_bytes(4, 'big'))
 
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
