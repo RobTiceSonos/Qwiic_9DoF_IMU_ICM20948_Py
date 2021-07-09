@@ -46,38 +46,29 @@ def runExample(tx_pipe=None):
     IMU.resetFIFO()
 
     while True:
-        try:
-            # Read any DMP data waiting in the FIFO
-            data = IMU.readDMPdataFromFIFO()
+        # Read any DMP data waiting in the FIFO
+        data = IMU.readDMPdataFromFIFO()
 
-            # We have asked for orientation data so we should receive Quat9
-            # Scale to +/- 1 and convert to double. Divide by 2^30
-            quat9 = data['Quat9']
-            q1 = quat9['Q1']
-            q2 = quat9['Q2']
-            q3 = quat9['Q3']
-            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
-            print(f'W:{q0} X:{q1} Y:{q2} Z:{q3} Acc:{quat9["Accuracy"]}')
+        # We have asked for orientation data so we should receive Quat9
+        # Scale to +/- 1 and convert to double. Divide by 2^30
+        quat9 = data['Quat9']
+        q1 = quat9['Q1']
+        q2 = quat9['Q2']
+        q3 = quat9['Q3']
+        q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+        print(f'W:{q0} X:{q1} Y:{q2} Z:{q3} Acc:{quat9["Accuracy"]}')
 
-            if tx_pipe:
-                anim_data = {
-                    'quat_w': q0,
-                    'quat_x': q1,
-                    'quat_y': q2,
-                    'quat_z': q3
-                }
+        if tx_pipe:
+            anim_data = {
+                'quat_w': q0,
+                'quat_x': q1,
+                'quat_y': q2,
+                'quat_z': q3
+            }
 
-                dat_str = json.dumps(anim_data)
+            dat_str = json.dumps(anim_data)
 
-                os.write(tx_pipe, dat_str.encode("utf-8"))
-
-        except dmp.fifo.FIFOUnderflow as e:
-            # Not enough data available in the buffer, thats ok, moving on
-            pass
-        except:
-            print(f"Unexpected error: {sys.exec_info()[0]}")
-            raise
-        finally:
+            os.write(tx_pipe, dat_str.encode("utf-8"))
             time.sleep(0.08)
 
 

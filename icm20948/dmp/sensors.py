@@ -1,4 +1,4 @@
-from enum import IntEnum, Enum
+from enum import Enum
 
 
 class SensorNotSupported(Exception):
@@ -8,7 +8,7 @@ class SensorNotSupported(Exception):
 
 # Sensor identifier for control function
 class Sensor_Types(Enum):
-    ACCELEROMETER = 0,
+    ACCELEROMETER = 0
     GYROSCOPE = 1
     RAW_ACCELEROMETER = 2
     RAW_GYROSCOPE = 3

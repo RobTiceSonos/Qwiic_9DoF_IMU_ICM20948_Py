@@ -505,7 +505,7 @@ class QwiicIcm20948(object):
 
     def setSampleRateAcc(self, rate):
         self.setBank(2)
-        div = rate.to_bytes(2, 'big')
+        div = rate.to_bytes(2, byteorder='big')
         self._writeBlock(self.AGB2_REG_ACCEL_SMPLRT_DIV_1, div)
 
     # ----------------------------------
@@ -1147,7 +1147,7 @@ class QwiicIcm20948(object):
     def setDMPstartAddress(self, addr: int = dmp.regs.START_ADDRESS):
         self.setBank(2)
         # Write the sensor control bits into memory address AGB2_REG_PRGM_START_ADDRH
-        self._writeBlock(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, 'big'))
+        self._writeBlock(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, byteorder='big'))
 
     def writeMems(self, reg: int, data: int):
         bytesWritten = 0
@@ -1214,7 +1214,7 @@ class QwiicIcm20948(object):
         gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
 
         # Finally, write the value to the DMP GYRO_SF register
-        self.writeMems(dmp.regs.GYRO_SF, gyro_sf.to_bytes(4, 'big'))
+        self.writeMems(dmp.regs.GYRO_SF, gyro_sf.to_bytes(4, byteorder='big'))
 
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
@@ -1295,8 +1295,9 @@ class QwiicIcm20948(object):
         self._writeByte(self.AGB0_REG_FIFO_EN_2, 0)
 
         # Turn off data ready interrupt through INT_ENABLE_1
+        self.setBank(0)
         int_en = self._readByte(self.AGB0_REG_INT_ENABLE_1)
-        int_en = int_en & 0xFE
+        int_en = int_en & ~1
         self._writeByte(self.AGB0_REG_INT_ENABLE_1, int_en)
 
         # Reset FIFO through FIFO_RST
@@ -1304,8 +1305,9 @@ class QwiicIcm20948(object):
 
         # Set gyro sample rate divider with GYRO_SMPLRT_DIV
         # Set accel sample rate divider with ACCEL_SMPLRT_DIV_2
-        self.setSampleRateGyr(19) # ODR is computed as follows: 1.1 kHz/(1+GYRO_SMPLRT_DIV[7:0]). 19 = 55Hz. InvenSense Nucleo example uses 19 (0x13).
-        self.setSampleRateAcc(19) # ODR is computed as follows: 1.125 kHz/(1+ACCEL_SMPLRT_DIV[11:0]). 19 = 56.25Hz. InvenSense Nucleo example uses 19 (0x13).
+        smplrate_div = 19
+        self.setSampleRateGyr(smplrate_div) # ODR is computed as follows: 1.1 kHz/(1+GYRO_SMPLRT_DIV[7:0]). 19 = 55Hz. InvenSense Nucleo example uses 19 (0x13).
+        self.setSampleRateAcc(smplrate_div) # ODR is computed as follows: 1.125 kHz/(1+ACCEL_SMPLRT_DIV[11:0]). 19 = 56.25Hz. InvenSense Nucleo example uses 19 (0x13).
 
         #  Setup DMP start address through PRGM_STRT_ADDRH/PRGM_STRT_ADDRL
         self.setDMPstartAddress()
@@ -1372,7 +1374,7 @@ class QwiicIcm20948(object):
         #            0=1125Hz sample rate, 1=562.5Hz sample rate, ... 4=225Hz sample rate, ...
         #            10=102.2727Hz sample rate, ... etc.
         # @param[in] gyro_level 0=250 dps, 1=500 dps, 2=1000 dps, 3=2000 dps
-        self.setGyroSF(19, 3) # 19 = 55Hz (see above), 3 = 2000dps (see above)
+        self.setGyroSF(smplrate_div, 3) # 19 = 55Hz (see above), 3 = 2000dps (see above)
 
         # Configure the Gyro full scale
         # 2000dps : 2^28
@@ -1522,17 +1524,14 @@ class QwiicIcm20948(object):
             # Datasheet says "FIFO_CNT[12:8]"
             return ctrl & 0x1F
 
-        def readFIFO(len: int):
+        def readFIFO(length: int):
             nonlocal fifo_count
-            # Check if we need to read the FIFO count again
-            if fifo_count < len:
-                fifo_count = getFIFOcount()
-                if fifo_count < len: # Bail if fifo count is still < len
-                    raise dmp.fifo.FIFOUnderflow(f'Not enough data available in FIFO {fifo_count} < {len}.')
+            while fifo_count < length:
+                fifo_count += getFIFOcount()
 
-            fifo_count -= len
+            fifo_count -= length
             self.setBank(0)
-            return self._readBlock(self.AGB0_REG_FIFO_R_W, len)
+            return self._readBlock(self.AGB0_REG_FIFO_R_W, length)
 
         def processSensors(header: int, sensor_list: list):
             for s in sensor_list:

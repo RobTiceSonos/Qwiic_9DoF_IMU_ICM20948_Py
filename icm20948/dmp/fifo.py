@@ -2,11 +2,6 @@ import ctypes
 from enum import IntEnum
 
 
-class FIFOUnderflow(Exception):
-    """ Raised when the DMP FIFO does not contain enough data yet """
-    pass
-
-
 # Constants
 class Header_Mask(IntEnum):
     HEADER2 = 0x0008
@@ -140,9 +135,14 @@ class Quat9(Quat6):
         return ret
 
 
-class PQuat6(Quat6):
+class PQuat6(BaseStruct):
     mask = Header_Mask.PQUAT6
-    layout = '!iii'
+    layout = '!hhh'
+    _fields_ = [
+        ('Q1', ctypes.c_int16),
+        ('Q2', ctypes.c_int16),
+        ('Q3', ctypes.c_int16),
+    ]
 
 
 class Geomag(Quat9):
@@ -152,7 +152,7 @@ class Geomag(Quat9):
 
 class Pressure(BaseStruct):
     mask = Header_Mask.PRESSURE
-    layout = '!s3s3'
+    layout = '!3s3s'
     _fields_ = [
         ('Pressure', ctypes.c_uint8 * 3),
         ('Temperature', ctypes.c_uint8 * 3),
@@ -278,13 +278,13 @@ HEADER_SENSORS = [
     RawAccel,
     RawGyro,
     Compass,
-    ALS,
+    # ALS,
     Quat6,
     Quat9,
     PQuat6,
     Geomag,
-    Pressure,
-    # Gyro_Calibr,
+    # Pressure,
+    Gyro_Calibr,
     Compass_Calibr,
     Pedometer_Timestamp,
 ]
@@ -295,6 +295,6 @@ HEADER2_SENSORS = [
     Compass_Accuracy,
     # Fsync_Delay_Time,
     Pickup,
-    Activity_Recognition,
+    # Activity_Recognition,
     Secondary_On_Off,
 ]
