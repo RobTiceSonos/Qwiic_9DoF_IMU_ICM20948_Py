@@ -14,7 +14,7 @@ class Sensor_Types(Enum):
     RAW_GYROSCOPE = 3
     MAGNETIC_FIELD_UNCALIBRATED = 4
     GYROSCOPE_UNCALIBRATED = 5
-    ACTIVITY_CLASSIFICATON = 6
+    # ACTIVITY_CLASSIFICATON = 6
     STEP_DETECTOR = 7
     STEP_COUNTER = 8
     GAME_ROTATION_VECTOR = 9
@@ -22,14 +22,13 @@ class Sensor_Types(Enum):
     GEOMAGNETIC_ROTATION_VECTOR = 11
     GEOMAGNETIC_FIELD = 12
     WAKEUP_SIGNIFICANT_MOTION = 13
-    FLIP_PICKUP = 14
+    # FLIP_PICKUP = 14
     WAKEUP_TILT_DETECTOR = 15
     GRAVITY = 16
     LINEAR_ACCELERATION = 17
     ORIENTATION = 18
-    B2S = 19
-    RAW_MAGNETOMETER = 20
-    MAX = 21
+    # B2S = 19
+    # RAW_MAGNETOMETER = 20
 
 
 # enum for android sensor
@@ -98,7 +97,7 @@ def sensor_type_2_android_sensor(sensor: Sensor_Types):
         Sensor_Types.RAW_GYROSCOPE: Android_Sensors.RAW_GYROSCOPE,
         Sensor_Types.MAGNETIC_FIELD_UNCALIBRATED: Android_Sensors.MAGNETIC_FIELD_UNCALIBRATED,
         Sensor_Types.GYROSCOPE_UNCALIBRATED: Android_Sensors.GYROSCOPE_UNCALIBRATED,
-        Sensor_Types.ACTIVITY_CLASSIFICATON: Android_Sensors.ACTIVITY_CLASSIFICATON,
+        # Sensor_Types.ACTIVITY_CLASSIFICATON: Android_Sensors.ACTIVITY_CLASSIFICATON,
         Sensor_Types.STEP_DETECTOR: Android_Sensors.STEP_DETECTOR,
         Sensor_Types.STEP_COUNTER: Android_Sensors.STEP_COUNTER,
         Sensor_Types.GAME_ROTATION_VECTOR: Android_Sensors.GAME_ROTATION_VECTOR,
@@ -106,12 +105,12 @@ def sensor_type_2_android_sensor(sensor: Sensor_Types):
         Sensor_Types.GEOMAGNETIC_ROTATION_VECTOR: Android_Sensors.GEOMAGNETIC_ROTATION_VECTOR,
         Sensor_Types.GEOMAGNETIC_FIELD: Android_Sensors.GEOMAGNETIC_FIELD,
         Sensor_Types.WAKEUP_SIGNIFICANT_MOTION: Android_Sensors.WAKEUP_SIGNIFICANT_MOTION,
-        Sensor_Types.FLIP_PICKUP: Android_Sensors.FLIP_PICKUP,
+        # Sensor_Types.FLIP_PICKUP: Android_Sensors.FLIP_PICKUP,
         Sensor_Types.WAKEUP_TILT_DETECTOR: Android_Sensors.WAKEUP_TILT_DETECTOR,
         Sensor_Types.GRAVITY: Android_Sensors.GRAVITY,
         Sensor_Types.LINEAR_ACCELERATION: Android_Sensors.LINEAR_ACCELERATION,
         Sensor_Types.ORIENTATION: Android_Sensors.ORIENTATION,
-        Sensor_Types.B2S: Android_Sensors.B2S,
+        # Sensor_Types.B2S: Android_Sensors.B2S,
     }
 
     if sensor in lookup:
