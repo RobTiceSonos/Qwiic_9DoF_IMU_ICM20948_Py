@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 
 class SensorNotSupported(Exception):
@@ -7,7 +7,7 @@ class SensorNotSupported(Exception):
 
 
 # Sensor identifier for control function
-class Sensor_Types(IntEnum):
+class Sensor_Types(Enum):
     ACCELEROMETER = 0,
     GYROSCOPE = 1
     RAW_ACCELEROMETER = 2
@@ -33,7 +33,7 @@ class Sensor_Types(IntEnum):
 
 
 # enum for android sensor
-class Android_Sensors(IntEnum):
+class Android_Sensors(Enum):
     META_DATA = 0
     ACCELEROMETER = 1
     GEOMAGNETIC_FIELD = 2
@@ -117,7 +117,7 @@ def sensor_type_2_android_sensor(sensor: Sensor_Types):
     if sensor in lookup:
         return lookup[sensor]
 
-    raise SensorNotSupported('Sensor type not supported.')
+    raise SensorNotSupported(f'Sensor type {sensor} not supported.')
 
 
 def androidSensor_to_control_bits(sensor):
@@ -189,7 +189,7 @@ def androidSensor_to_control_bits(sensor):
     if sensor in lookup and lookup[sensor] != 0xFFFF:
         return lookup[sensor]
 
-    raise SensorNotSupported('Sensor type not supported.')
+    raise SensorNotSupported(f'Sensor type {sensor} not supported.')
 
 
 # Determines which base sensor needs to be on
