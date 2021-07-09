@@ -1,6 +1,6 @@
 from __future__ import print_function
-import qwiic_icm20948
-from dmp_defines import *
+
+from icm20948 import qwiic_icm20948, dmp
 
 import argparse
 import json
@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser(description='SparkFun 9DoF ICM-20948 Sensor DMP
 parser.add_argument('-p', '--pipe', action='store_true', default=IPC_FIFO_NAME_TX, help='The name of the IPC pipe to send data to.')
 parser.add_argument('-l', '--local', action='store_true', help='If this option is set, no pipe is used and data is just printed to stdout.')
 
+
 def runExample(tx_pipe=None):
 
     print("\nSparkFun 9DoF ICM-20948 Sensor DMP Quat 9 Example\n")
@@ -28,13 +29,13 @@ def runExample(tx_pipe=None):
     # Initialize the ICM-20948 and Initialize the DMP
     IMU.begin(dmp=True)
     # Enable the DMP orientation sensor
-    IMU.enableDMPSensor(inv_icm20948_sensor.INV_ICM20948_SENSOR_ORIENTATION)
+    IMU.enableDMPSensor(dmp.sensors.Sensor_Types.ORIENTATION)
     # Configuring DMP to output data at multiple ODRs:
     # DMP is capable of outputting multiple sensor data at different rates to FIFO.
     # Setting value can be calculated as follows:
     # Value = (DMP running rate / ODR ) - 1
     # E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-    IMU.setDMPODRrate(ODR_REGS.DMP_ODR_REG_QUAT9, 10)
+    IMU.setDMPODRrate(dmp.regs.Output_Data_Rate_Control.QUAT9, 10)
     # Enable the FIFO
     IMU.enableFIFO()
     # Enable the DMP
@@ -70,7 +71,7 @@ def runExample(tx_pipe=None):
 
                 os.write(tx_pipe, dat_str.encode("utf-8"))
 
-        except DMPFIFOUnderflow as e:
+        except dmp.fifo.FIFOUnderflow as e:
             # Not enough data available in the buffer, thats ok, moving on
             pass
         except:

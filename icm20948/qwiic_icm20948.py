@@ -51,14 +51,12 @@ New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.s
 """
 #-----------------------------------------------------------------------------
 
-from fcntl import F_EXLCK
+import ctypes
 import qwiic_i2c
-from enum import Enum
 from struct import unpack
 import time
 
-from dmp_defines import *
-from dmp_image import dmp3_image
+import dmp
 
 # Define the device name and I2C addresses. These are set in the class definition
 # as class variables, making them avilable without having to create a class instance.
@@ -81,20 +79,20 @@ ICM_20948_Internal_Acc = (1 << 0)
 ICM_20948_Internal_Gyr = (1 << 1)
 ICM_20948_Internal_Mag = (1 << 2)
 ICM_20948_Internal_Tmp = (1 << 3)
-ICM_20948_Internal_Mst = (1 << 4) # I2C Master Internal
+ICM_20948_Internal_Mst = (1 << 4)  # I2C Master Internal
 
 # Sample mode options
 ICM_20948_Sample_Mode_Continuous = 0x00
 ICM_20948_Sample_Mode_Cycled = 0x01
 
 # Accel full scale range options [AGB2_REG_ACCEL_CONFIG]
-gpm2 = 0x00 # G forces Plus or Minus (aka "gpm")
+gpm2 = 0x00  # G forces Plus or Minus (aka "gpm")
 gpm4 = 0x01
 gpm8 = 0x02
 gpm16 = 0x03
 
 # Gyro full scale range options [AGB2_REG_GYRO_CONFIG_1]
-dps250 = 0x00 #degrees per second (aka "dps")
+dps250 = 0x00  # degrees per second (aka "dps")
 dps500 = 0x01
 dps1000 = 0x02
 dps2000 = 0x03
@@ -149,6 +147,9 @@ AK09916_REG_ST2 = 0x18
 AK09916_REG_CNTL2 = 0x31
 AK09916_REG_CNTL3 = 0x32
 
+INV_MAX_SERIAL_WRITE = 16 # Max size that can be written across I2C or SPI data lines
+INV_MAX_SERIAL_READ = 16 # Max size that can be read across I2C or SPI data lines
+
 
 # define the class that encapsulates the device being created. All information associated with this
 # device is encapsulated by this class. The device class should be the only value exported
@@ -169,7 +170,7 @@ class QwiicIcm20948(object):
     device_name			= _DEFAULT_NAME
     available_addresses	= _AVAILABLE_I2C_ADDRESS
 
-     # Generalized
+    # Generalized
     REG_BANK_SEL = 						0x7F
 
     # Gyroscope and Accelerometer
@@ -1098,7 +1099,7 @@ class QwiicIcm20948(object):
         ctrl = ctrl | 1 << 3
         self._writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
-    def loadDMPFirmware(self, data = dmp3_image, load_addr = DMP_LOAD_START):
+    def loadDMPFirmware(self, data = dmp.images.dmp3_image, load_addr = dmp.regs.LOAD_START):
         # Make sure chip is awake
         self.sleep(False)
         # Make sure chip is not in low power state
@@ -1136,14 +1137,14 @@ class QwiicIcm20948(object):
             # Compare the data
             for i in range(0, read_size):
                 if data_cmp[i] != data[bytesRead + i]:
-                    raise DMPFirmwareVerify('Firmware verification failed.')
+                    raise dmp.FirmwareVerify('Firmware verification failed.')
 
             bytesRead += read_size
             size -= read_size
             memaddr += read_size
 
 
-    def setDMPstartAddress(self, addr: int = DMP_START_ADDRESS):
+    def setDMPstartAddress(self, addr: int = dmp.regs.START_ADDRESS):
         self.setBank(2)
         # Write the sensor control bits into memory address AGB2_REG_PRGM_START_ADDRH
         self._writeBlock(self.AGB2_REG_PRGM_START_ADDRH, addr.to_bytes(2, 'big'))
@@ -1179,9 +1180,9 @@ class QwiicIcm20948(object):
         while bytesRead < length:
             lstartaddr = reg & 0xFF
             # Sets the starting read or write address for the selected memory, inside of the selected page (see MEM_SEL Register).
-		    # Contents are changed after read or write of the selected memory.
-		    # This register must be written prior to each access to initialize the register to the proper starting address.
-		    # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
+            # Contents are changed after read or write of the selected memory.
+            # This register must be written prior to each access to initialize the register to the proper starting address.
+            # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
             self._writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
             thisLen = length - bytesRead if length - bytesRead <= INV_MAX_SERIAL_READ else INV_MAX_SERIAL_READ
 
@@ -1213,7 +1214,7 @@ class QwiicIcm20948(object):
         gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
 
         # Finally, write the value to the DMP GYRO_SF register
-        self.writeMems(GYRO_SF, gyro_sf.to_bytes(4, 'big'))
+        self.writeMems(dmp.regs.GYRO_SF, gyro_sf.to_bytes(4, 'big'))
 
     def initializeDMP(self):
         # So, we need to set up I2C_SLV0 to do the ten byte reading. The parameters passed to i2cControllerConfigurePeripheral are:
@@ -1326,10 +1327,10 @@ class QwiicIcm20948(object):
         # Configure Accel scaling to DMP
         # The DMP scales accel raw data internally to align 1g as 2^25
         # In order to align internal accel raw data 2^25 = 1g write 0x04000000 when FSR is 4g
-        self.writeMems(ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
+        self.writeMems(dmp.regs.ACC_SCALE, [0x04, 0x00, 0x00, 0x00])
 
         # In order to output hardware unit data as configured FSR write 0x00040000 when FSR is 4g
-        self.writeMems(ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
+        self.writeMems(dmp.regs.ACC_SCALE2, [0x00, 0x04, 0x00, 0x00])
 
         # Configure Compass mount matrix and scale to DMP
         # The mount matrix write to DMP register is used to align the compass axes with accel/gyro.
@@ -1343,28 +1344,28 @@ class QwiicIcm20948(object):
         mountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         mountMultiplierPlus = [0x09, 0x99, 0x99, 0x99]
         mountMultiplierMinus = [0xF6, 0x66, 0x66, 0x67]
-        self.writeMems(CPASS_MTX_00, mountMultiplierPlus)
-        self.writeMems(CPASS_MTX_01, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_02, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_10, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_11, mountMultiplierMinus)
-        self.writeMems(CPASS_MTX_12, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_20, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_21, mountMultiplierZero)
-        self.writeMems(CPASS_MTX_22, mountMultiplierMinus)
+        self.writeMems(dmp.regs.CPASS_MTX_00, mountMultiplierPlus)
+        self.writeMems(dmp.regs.CPASS_MTX_01, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_02, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_10, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_11, mountMultiplierMinus)
+        self.writeMems(dmp.regs.CPASS_MTX_12, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_20, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_21, mountMultiplierZero)
+        self.writeMems(dmp.regs.CPASS_MTX_22, mountMultiplierMinus)
 
         # Configure the B2S Mounting Matrix
         b2sMountMultiplierZero = [0x00, 0x00, 0x00, 0x00]
         b2sMountMultiplierPlus = [0x40, 0x00, 0x00, 0x00]
-        self.writeMems(B2S_MTX_00, b2sMountMultiplierPlus)
-        self.writeMems(B2S_MTX_01, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_02, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_10, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_11, b2sMountMultiplierPlus)
-        self.writeMems(B2S_MTX_12, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_20, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_21, b2sMountMultiplierZero)
-        self.writeMems(B2S_MTX_22, b2sMountMultiplierPlus)
+        self.writeMems(dmp.regs.B2S_MTX_00, b2sMountMultiplierPlus)
+        self.writeMems(dmp.regs.B2S_MTX_01, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_02, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_10, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_11, b2sMountMultiplierPlus)
+        self.writeMems(dmp.regs.B2S_MTX_12, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_20, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_21, b2sMountMultiplierZero)
+        self.writeMems(dmp.regs.B2S_MTX_22, b2sMountMultiplierPlus)
 
         # Configure the DMP Gyro Scaling Factor
         # @param[in] gyro_div Value written to GYRO_SMPLRT_DIV register, where
@@ -1378,38 +1379,38 @@ class QwiicIcm20948(object):
         # 1000dps : 2^27
         #  500dps : 2^26
         #  250dps : 2^25
-        self.writeMems(GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00]) # 2000dps : 2^28
+        self.writeMems(dmp.regs.GYRO_FULLSCALE, [0x10, 0x00, 0x00, 0x00]) # 2000dps : 2^28
 
         # Configure the Accel Only Gain: 15252014 (225Hz) 30504029 (112Hz) 61117001 (56Hz)
         # {0x03, 0xA4, 0x92, 0x49}; 56Hz
         # {0x00, 0xE8, 0xBA, 0x2E}; 225Hz
         # {0x01, 0xD1, 0x74, 0x5D}; 112Hz
-        self.writeMems(ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49]) # 56Hz
+        self.writeMems(dmp.regs.ACCEL_ONLY_GAIN, [0x03, 0xA4, 0x92, 0x49]) # 56Hz
 
         # Configure the Accel Alpha Var: 1026019965 (225Hz) 977872018 (112Hz) 882002213 (56Hz)
         # {0x34, 0x92, 0x49, 0x25}; 56Hz
         # {0x3D, 0x27, 0xD2, 0x7D}; 225Hz
         # {0x3A, 0x49, 0x24, 0x92}; 112Hz
-        self.writeMems(ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25]) # 56Hz
+        self.writeMems(dmp.regs.ACCEL_ALPHA_VAR, [0x34, 0x92, 0x49, 0x25]) # 56Hz
 
         # Configure the Accel A Var: 47721859 (225Hz) 95869806 (112Hz) 191739611 (56Hz)
         # {0x0B, 0x6D, 0xB6, 0xDB}; 56Hz
         # {0x02, 0xD8, 0x2D, 0x83}; 225Hz
         # {0x05, 0xB6, 0xDB, 0x6E}; 112Hz
-        self.writeMems(ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
+        self.writeMems(dmp.regs.ACCEL_A_VAR, [0x0B, 0x6D, 0xB6, 0xDB])
 
         # Configure the Accel Cal Rate
-        self.writeMems(ACCEL_CAL_RATE, [0x00, 0x00]) # Value taken from InvenSense Nucleo example
+        self.writeMems(dmp.regs.ACCEL_CAL_RATE, [0x00, 0x00]) # Value taken from InvenSense Nucleo example
 
         # Configure the Compass Time Buffer. The I2C Master ODR Configuration (see above) sets the magnetometer read rate to 68.75Hz.
         # Let's set the Compass Time Buffer to 69 (Hz).
-        self.writeMems(CPASS_TIME_BUFFER, [0x00, 0x45]) # 69Hz
+        self.writeMems(dmp.regs.CPASS_TIME_BUFFER, [0x00, 0x45]) # 69Hz
 
-    def enableDMPSensor(self, sensor: inv_icm20948_sensor, enable: bool = True):
+    def enableDMPSensor(self, sensor: dmp.sensors.Sensor_Types, enable: bool = True):
         if not self.dmp:
-            raise DMPUninitialized('DMP not properly initialized!')
+            raise dmp.Uninitialized('DMP not properly initialized!')
 
-        android_sensor = sensor_type_2_android_sensor(sensor)
+        android_sensor = dmp.sensors.sensor_type_2_android_sensor(sensor)
 
         if enable:
             if android_sensor in self.dmp_sensor_list:
@@ -1428,20 +1429,20 @@ class QwiicIcm20948(object):
         data_rdy_status = 0
         event_control = 0
         for s in self.dmp_sensor_list:
-            bits = inv_androidSensor_to_control_bits(s)
+            bits = dmp.sensors.androidSensor_to_control_bits(s)
             data_out = data_out | bits
 
-            if s in INV_NEEDS_ACCEL_MASK:
-                data_rdy_status = data_rdy_status | DMP_DATA_READY_ACCEL
-                event_control = event_control | DMP_MOTION_EVENT_CONTROL_ACCEL_CALIBR
+            if s in dmp.sensors.NEEDS_ACCEL_MASK:
+                data_rdy_status = data_rdy_status | dmp.regs.Data_Ready.ACCEL
+                event_control = event_control | dmp.regs.Motion_Event_Control.ACCEL_CALIBR
 
-            if s in INV_NEEDS_GYRO_MASK:
-                data_rdy_status = data_rdy_status | DMP_DATA_READY_GYRO
-                event_control = event_control | DMP_MOTION_EVENT_CONTROL_GYRO_CALIBR
+            if s in dmp.sensors.NEEDS_GYRO_MASK:
+                data_rdy_status = data_rdy_status | dmp.regs.Data_Ready.GYRO
+                event_control = event_control | dmp.regs.Motion_Event_Control.GYRO_CALIBR
 
-            if s in INV_NEEDS_COMPASS_MASK:
-                data_rdy_status = data_rdy_status | DMP_DATA_READY_SECONDARY_COMPASS
-                event_control = event_control | DMP_MOTION_EVENT_CONTROL_COMPASS_CALIBR
+            if s in dmp.sensors.NEEDS_COMPASS_MASK:
+                data_rdy_status = data_rdy_status | dmp.regs.Data_Ready.SECONDARY_COMPASS
+                event_control = event_control | dmp.regs.Motion_Event_Control.COMPASS_CALIBR
 
         # make sure chip is awake
         self.sleep(False)
@@ -1452,37 +1453,37 @@ class QwiicIcm20948(object):
         # Check if Accel, Gyro/Gyro_Calibr or Compass_Calibr/Quat9/GeoMag/Compass are to be enabled.
         # If they are then we need to request the accuracy data via header2.
         data_out2 = 0
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_ACCEL:
-            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_ACCEL_ACCURACY
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_GYRO_CALIBR:
-            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_GYRO_ACCURACY
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_COMPASS_CALIBR:
-            data_out2 = data_out2 | DMP_DATA_OUTPUT_CONTROL_2_COMPASS_ACCURACY
+        if data_out & dmp.regs.Data_Output_Control_1.ACCEL:
+            data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.ACCEL_ACCURACY
+        if data_out & dmp.regs.Data_Output_Control_1.GYRO_CALIBR:
+            data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.GYRO_ACCURACY
+        if data_out & dmp.regs.Data_Output_Control_1.COMPASS_CALIBR:
+            data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.COMPASS_ACCURACY
 
         # Write the sensor control bits into memory address DATA_OUT_CTL1
-        self.writeMems(DATA_OUT_CTL1, data_out.to_bytes(2, byteorder='big'))
+        self.writeMems(dmp.regs.DATA_OUT_CTL1, data_out.to_bytes(2, byteorder='big'))
 
         # Write the 'header2' sensor control bits into memory address DATA_OUT_CTL2
-        self.writeMems(DATA_OUT_CTL2, data_out2.to_bytes(2, byteorder='big'))
+        self.writeMems(dmp.regs.DATA_OUT_CTL2, data_out2.to_bytes(2, byteorder='big'))
 
         # Set the DATA_RDY_STATUS register
-        self.writeMems(DATA_RDY_STATUS, data_rdy_status.to_bytes(2, byteorder='big'))
+        self.writeMems(dmp.regs.DATA_RDY_STATUS, data_rdy_status.to_bytes(2, byteorder='big'))
 
         # Check which extra bits need to be set in the Motion Event Control register
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_QUAT9:
-            event_control = event_control | DMP_MOTION_EVENT_CONTROL_9AXIS
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_STEP_DETECTOR:
-            event_control = event_control | DMP_MOTION_EVENT_CONTROL_PEDOMETER_INTERRUPT
-        if data_out & DMP_DATA_OUTPUT_CONTROL_1_GEOMAG:
-            event_control = event_control | DMP_MOTION_EVENT_CONTROL_GEOMAG
+        if data_out & dmp.regs.Data_Output_Control_1.QUAT9:
+            event_control = event_control | dmp.regs.Motion_Event_Control.AXIS9
+        if data_out & dmp.regs.Data_Output_Control_1.STEP_DETECTOR:
+            event_control = event_control | dmp.regs.Motion_Event_Control.PEDOMETER_INTERRUPT
+        if data_out & dmp.regs.Data_Output_Control_1.GEOMAG:
+            event_control = event_control | dmp.regs.Motion_Event_Control.GEOMAG
 
         # Set the MOTION_EVENT_CTL register
-        self.writeMems(MOTION_EVENT_CTL, event_control.to_bytes(2, byteorder='big'))
+        self.writeMems(dmp.regs.MOTION_EVENT_CTL, event_control.to_bytes(2, byteorder='big'))
 
         # Put chip into low power state
         self.lowPower(True)
 
-    def setDMPODRrate(self, reg: ODR_REGS, interval: int):
+    def setDMPODRrate(self, reg: dmp.regs.Output_Data_Rate_Control, interval: int):
         # Set the ODR registers and clear the ODR counter
 
         # In order to set an ODR for a given sensor data, write 2-byte value to DMP using key defined above for a particular sensor.
@@ -1493,7 +1494,7 @@ class QwiicIcm20948(object):
         # During run-time, if an ODR is changed, the corresponding rate counter must be reset.
         # To reset, write 2-byte {0,0} to DMP using keys below for a particular sensor:
         if not self.dmp:
-            raise DMPUninitialized('DMP not properly initialized!')
+            raise dmp.Uninitialized('DMP not properly initialized!')
 
         # Make sure chip is awake
         self.sleep(False)
@@ -1527,7 +1528,7 @@ class QwiicIcm20948(object):
             if fifo_count < len:
                 fifo_count = getFIFOcount()
                 if fifo_count < len: # Bail if fifo count is still < len
-                    raise DMPFIFOUnderflow(f'Not enough data available in FIFO {fifo_count} < {len}.')
+                    raise dmp.fifo.FIFOUnderflow(f'Not enough data available in FIFO {fifo_count} < {len}.')
 
             fifo_count -= len
             self.setBank(0)
@@ -1541,22 +1542,22 @@ class QwiicIcm20948(object):
                     ret[s.__name__] = data.asdict()
 
         if not self.dmp:
-            raise DMPUninitialized('DMP not properly initialized!')
+            raise dmp.Uninitialized('DMP not properly initialized!')
 
         # Read the header (2 bytes)
-        header = int.from_bytes(readFIFO(ICM_20948_DMP_HEADER_BYTES), byteorder='big')
+        header = int.from_bytes(readFIFO(dmp.regs.HEADER_SIZE), byteorder='big')
 
         # If the header indicates a header2 is present then read that now
         header2 = None
-        if header & DMP_HEADER_BITMAP_HEADER2:
-            header2 = int.from_bytes(readFIFO(ICM_20948_DMP_HEADER2_BYTES), byteorder='big')
+        if header & dmp.fifo.Header_Mask.HEADER2:
+            header2 = int.from_bytes(readFIFO(dmp.regs.HEADER2_SIZE), byteorder='big')
 
-        processSensors(header, HEADER_SENSORS)
+        processSensors(header, dmp.fifo.HEADER_SENSORS)
         if header2:
-            processSensors(header2, HEADER2_SENSORS)
+            processSensors(header2, dmp.fifo.HEADER2_SENSORS)
 
         # Finally, extract the footer (gyro count)
-        data = readFIFO(ICM_20948_DMP_FOOTER_BYTES)
+        data = readFIFO(dmp.regs.FOOTER_SIZE)
         ret['footer'] = int.from_bytes(data, byteorder='big')
 
         return ret
