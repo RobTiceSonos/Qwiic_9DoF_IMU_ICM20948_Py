@@ -1,4 +1,4 @@
-from . import regs, exceptions, images, sensors, fifo
+from . import fifo, images, regs, sensors
 
 
 class Uninitialized(Exception):
