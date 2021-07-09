@@ -56,7 +56,7 @@ import qwiic_i2c
 from struct import unpack
 import time
 
-import dmp
+from . import dmp
 
 # Define the device name and I2C addresses. These are set in the class definition
 # as class variables, making them avilable without having to create a class instance.
