@@ -50,7 +50,7 @@ class BaseStruct(ctypes.Structure):
         return result
 
 
-class RawAccel(BaseStruct):
+class Accel(BaseStruct):
     mask = Header_Mask.ACCEL
     layout = '!hhh'
     _fields_ = [
@@ -60,7 +60,7 @@ class RawAccel(BaseStruct):
     ]
 
 
-class RawGyro(BaseStruct):
+class Gyro(BaseStruct):
     mask = Header_Mask.GYRO
     layout = '!hhhhhh'
     _fields_ = [
@@ -213,8 +213,7 @@ class Accel_Accuracy(BaseStruct):
     ]
 
     def asdict(self):
-        lookup = ['Low', 'Medium', 'High', 'Highest']
-        return lookup[self.Accuracy]
+        return self.Accuracy
 
 
 class Gyro_Accuracy(Accel_Accuracy):
@@ -332,26 +331,26 @@ class Footer(BaseStruct):
 
 
 HEADER_SENSORS = [
-    RawAccel,
-    RawGyro,
+    Accel,
+    Gyro,
     Compass,
-    # ALS,
+    ALS,
     Quat6,
     Quat9,
     PQuat6,
     Geomag,
-    # Pressure,
-    Gyro_Calibr,
+    Pressure,
+#    Gyro_Calibr,
     Compass_Calibr,
-    Pedometer_Timestamp,
+#    Pedometer_Timestamp,
 ]
 
 HEADER2_SENSORS = [
     Accel_Accuracy,
     Gyro_Accuracy,
     Compass_Accuracy,
-    # Fsync_Delay_Time,
+#    Fsync_Delay_Time,
     Pickup,
-    # Activity_Recognition,
-    Secondary_On_Off,
+    Activity_Recognition,
+#    Secondary_On_Off,
 ]

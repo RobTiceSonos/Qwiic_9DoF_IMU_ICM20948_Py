@@ -186,6 +186,7 @@ class QwiicIcm20948(object):
     AGB0_REG_INT_ENABLE_2 = 			0x12
     AGB0_REG_INT_ENABLE_3 = 			0x13
     AGB0_REG_I2C_MST_STATUS = 			0x17
+    AGB0_REG_DMP_INT_STATUS =           0x18
     AGB0_REG_INT_STATUS = 				0x19
     AGB0_REG_INT_STATUS_1 = 			0x1A
     AGB0_REG_INT_STATUS_2 = 			0x1B
@@ -1053,6 +1054,8 @@ class QwiicIcm20948(object):
         self.startupMagnetometer(dmp)
 
         if self.dmp:
+            self.gyro_level = 0
+            self.fifo_count = 0
             self.dmp_sensor_list = set()
             self.initializeDMP()
             return
@@ -1195,7 +1198,7 @@ class QwiicIcm20948(object):
 
     def setGyroSF(self, div: int, level: int):
         # gyro_level should be set to 4 regardless of fullscale, due to the addition of API dmp_icm20648_set_gyro_fsr()
-        gyro_level = 4
+        self.gyro_level = 4
 
         # First read the TIMEBASE_CORRECTION_PLL register from Bank 1
         self.setBank(1)
@@ -1206,9 +1209,9 @@ class QwiicIcm20948(object):
         MagicConstantScale = 100000
 
         if pll & 0x80:
-            ResultLL = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale)
+            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale)
         else:
-            ResultLL = (MagicConstant * (1 << gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
+            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
 
         # saturate the result to prevent overflow
         gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
@@ -1515,7 +1518,6 @@ class QwiicIcm20948(object):
 
     def readDMPdataFromFIFO(self):
         ret = {}
-        fifo_count = 0
 
         def getFIFOcount():
             self.setBank(0)
@@ -1525,11 +1527,10 @@ class QwiicIcm20948(object):
             return ctrl & 0x1F
 
         def readFIFO(length: int):
-            nonlocal fifo_count
-            while fifo_count < length:
-                fifo_count += getFIFOcount()
+            while self.fifo_count < length:
+                self.fifo_count += getFIFOcount()
 
-            fifo_count -= length
+            self.fifo_count -= length
             self.setBank(0)
             return self._readBlock(self.AGB0_REG_FIFO_R_W, length)
 
@@ -1540,23 +1541,31 @@ class QwiicIcm20948(object):
                     data = s(*unpack(s.layout, raw))
                     ret[s.__name__] = data.asdict()
 
+        def identify_interrupt():
+            self.setBank(0)
+            int_status = self._readByte(self.AGB0_REG_INT_STATUS)
+            dmp_int_status = self._readByte(self.AGB0_REG_DMP_INT_STATUS)
+            return (dmp_int_status << 8 | int_status)
+
         if not self.dmp:
             raise dmp.Uninitialized('DMP not properly initialized!')
 
-        # Read the header (2 bytes)
-        header = int.from_bytes(readFIFO(dmp.regs.HEADER_SIZE), byteorder='big')
+        int_status = identify_interrupt()
+        if int_status & (dmp.regs.BIT_MSG_DMP_INT | dmp.regs.BIT_MSG_DMP_INT_0):
+            # Read the header (2 bytes)
+            header = int.from_bytes(readFIFO(dmp.regs.HEADER_SIZE), byteorder='big')
 
-        # If the header indicates a header2 is present then read that now
-        header2 = None
-        if header & dmp.fifo.Header_Mask.HEADER2:
-            header2 = int.from_bytes(readFIFO(dmp.regs.HEADER2_SIZE), byteorder='big')
+            # If the header indicates a header2 is present then read that now
+            header2 = None
+            if header & dmp.fifo.Header_Mask.HEADER2:
+                header2 = int.from_bytes(readFIFO(dmp.regs.HEADER2_SIZE), byteorder='big')
 
-        processSensors(header, dmp.fifo.HEADER_SENSORS)
-        if header2:
-            processSensors(header2, dmp.fifo.HEADER2_SENSORS)
+            processSensors(header, dmp.fifo.HEADER_SENSORS)
+            if header2:
+                processSensors(header2, dmp.fifo.HEADER2_SENSORS)
 
-        # Finally, extract the footer (gyro count)
-        data = readFIFO(dmp.regs.FOOTER_SIZE)
-        ret['footer'] = int.from_bytes(data, byteorder='big')
+            # Finally, extract the footer (gyro count)
+            data = readFIFO(dmp.regs.FOOTER_SIZE)
+            # ret['footer'] = int.from_bytes(data, byteorder='big')
 
         return ret

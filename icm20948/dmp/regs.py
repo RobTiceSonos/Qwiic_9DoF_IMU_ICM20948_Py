@@ -9,15 +9,15 @@ CFG_FIFO_SIZE = 4222
 
 # AGB0_REG_INT_STATUS bit definitions
 BIT_WAKE_ON_MOTION_INT = 0x08
-BIT_MSG_INT = 0x0002
-BIT_MSG_INT_0 = 0x0100 # CI Command
+BIT_MSG_DMP_INT = 0x0002
+BIT_MSG_DMP_INT_0 = 0x0100 # CI Command
 
-BIT_MSG_INT_2 = 0x0200 # CIM Command - SMD
-BIT_MSG_INT_3 = 0x0400 # CIM Command - Pedometer
+BIT_MSG_DMP_INT_2 = 0x0200 # CIM Command - SMD
+BIT_MSG_DMP_INT_3 = 0x0400 # CIM Command - Pedometer
 
-BIT_MSG_INT_4 = 0x1000 # CIM Command - Pedometer binning
-BIT_MSG_INT_5 = 0x2000 # CIM Command - Bring To See Gesture
-BIT_MSG_INT_6 = 0x4000 # CIM Command - Look To See Gesture
+BIT_MSG_DMP_INT_4 = 0x1000 # CIM Command - Pedometer binning
+BIT_MSG_DMP_INT_5 = 0x2000 # CIM Command - Bring To See Gesture
+BIT_MSG_DMP_INT_6 = 0x4000 # CIM Command - Look To See Gesture
 
 # Appendix I: DMP register addresses
 
