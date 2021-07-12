@@ -1,5 +1,5 @@
 import ctypes
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 
 # Constants
@@ -92,6 +92,7 @@ class ALS(BaseStruct):
         ('PDATA', ctypes.c_uint16),
     ]
 
+
 #     # The 6-Axis and 9-axis Quaternion outputs each consist of 12 bytes of data.
 #     # These 12 bytes in turn consists of three 4-byte elements.
 #     # 9-axis quaternion data and Geomag rv is always followed by 2-bytes of heading accuracy, hence the size of Quat9 and Geomag data size in the FIFO is 14 bytes.
@@ -101,8 +102,6 @@ class ALS(BaseStruct):
 #     # Q0 value is computed from this equation: Q20 + Q21 + Q22 + Q23 = 1.
 #     # In case of drift, the sum will not add to 1, therefore, quaternion data need to be corrected with right bias values.
 #     # The quaternion data is scaled by 2^30.
-
-
 class Quat6(BaseStruct):
     mask = Header_Mask.QUAT6
     layout = '!iii'
@@ -168,6 +167,14 @@ class Gyro_Calibr(BaseStruct):
         ('Z', ctypes.c_int32),
     ]
 
+    def asdict(self):
+        div = 32768.0
+        return {
+            'X': self.X / div,
+            'Y': self.Y / div,
+            'Z': self.Z / div,
+        }
+
 
 class Compass_Calibr(BaseStruct):
     mask = Header_Mask.COMPASS_CALIBR
@@ -178,6 +185,14 @@ class Compass_Calibr(BaseStruct):
         ('Z', ctypes.c_int32),
     ]
 
+    def asdict(self):
+        div = 65536.0
+        return {
+            'X': self.X / div,
+            'Y': self.Y / div,
+            'Z': self.Z / div,
+        }
+
 
 class Pedometer_Timestamp(BaseStruct):
     mask = Header_Mask.STEP_DETECTOR
@@ -185,6 +200,9 @@ class Pedometer_Timestamp(BaseStruct):
     _fields_ = [
         ('Timestamp', ctypes.c_uint32), # Timestamp as DMP cycle
     ]
+
+    def asdict(self):
+        return self.Timestamp
 
 
 class Accel_Accuracy(BaseStruct):
@@ -194,21 +212,19 @@ class Accel_Accuracy(BaseStruct):
         ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
     ]
 
+    def asdict(self):
+        lookup = ['Low', 'Medium', 'High', 'Highest']
+        return lookup[self.Accuracy]
 
-class Gyro_Accuracy(BaseStruct):
+
+class Gyro_Accuracy(Accel_Accuracy):
     mask = Header2_Mask.GYRO_ACCURACY
     layout = '!H'
-    _fields_ = [
-        ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
-    ]
 
 
-class Compass_Accuracy(BaseStruct):
+class Compass_Accuracy(Accel_Accuracy):
     mask = Header2_Mask.COMPASS_ACCURACY
     layout = '!H'
-    _fields_ = [
-        ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
-    ]
 
 
 class Fsync_Delay_Time(BaseStruct):
@@ -218,6 +234,9 @@ class Fsync_Delay_Time(BaseStruct):
         ('Value', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
     ]
 
+    def asdict(self):
+        return self.Value
+
 
 class Pickup(BaseStruct):
     mask = Header2_Mask.PICKUP
@@ -225,6 +244,10 @@ class Pickup(BaseStruct):
     _fields_ = [
         ('Value', ctypes.c_uint16), # The value “2” indicates pick up is detected.
     ]
+
+    def asdict(self):
+        return self.Value == 2
+
 
 #     # Activity Recognition data
 #     # The data include Start and End states, and timestamp as DMP cycle.
@@ -236,8 +259,6 @@ class Pickup(BaseStruct):
 #     # Bike: 0x08
 #     # Tilt: 0x10
 #     # Still: 0x20
-
-
 class Activity_Recognition(BaseStruct):
     mask = Header2_Mask.ACTIVITY_RECOG
     layout = '!BBI'
@@ -246,6 +267,29 @@ class Activity_Recognition(BaseStruct):
         ('State_End', ctypes.c_uint8),
         ('Timestamp', ctypes.c_uint32),
     ]
+
+    class Lookup(IntEnum):
+        Drive = 0x01
+        Walk = 0x02
+        Run = 0x04
+        Bike = 0x08
+        Tilt = 0x10
+        Still = 0x20
+
+    def _to_state(self, dat):
+        ret = []
+        for i in self.Lookup:
+            if dat & i.value:
+                ret.append(i.name)
+        return ret
+
+    def asdict(self):
+        return {
+            'State_Start': self._to_state(self.State_Start),
+            'State_End': self._to_state(self.State_End),
+            'Timestamp': self.Timestamp,
+        }
+
 
 #     # Secondary On/Off data
 #     # BAC algorithm requires sensors on/off through FIFO data to detect activities effectively and save power.
@@ -257,14 +301,27 @@ class Activity_Recognition(BaseStruct):
 #     # Compass On: 0x08
 #     # Proximity Off: 0x10
 #     # Proximity On: 0x20
-
-
 class Secondary_On_Off(BaseStruct):
     mask = Header2_Mask.SECONDARY_ON_OFF
     layout = '!H'
     _fields_ = [
         ('Sensors', ctypes.c_uint16),
     ]
+
+    class Lookup(Enum):
+        Gyro_Off = 0x01
+        Gyro_On = 0x02
+        Compass_Off = 0x04
+        Compass_On = 0x08
+        Proximity_Off = 0x10
+        Proximity_On = 0x20
+
+    def asdict(self):
+        ret = []
+        for i in self.Lookup:
+            if self.Sensors & i.value:
+                ret.append(i.name)
+        return ret
 
 
 class Footer(BaseStruct):
