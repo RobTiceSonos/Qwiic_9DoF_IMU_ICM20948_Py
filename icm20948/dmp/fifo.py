@@ -29,6 +29,33 @@ class Header2_Mask(IntEnum):
     ACCEL_ACCURACY = 0x4000
 
 
+HEADER_SIZE = 2
+HEADER2_SIZE = 2
+RAW_ACCEL_BYTES = 6
+RAW_GYRO_BYTES = 6
+GYRO_BIAS_BYTES = 6
+COMPASS_BYTES = 6
+ALS_BYTES = 8
+QUAT6_BYTES = 12
+QUAT9_BYTES = 14
+# <-- lcm20948MPUFifoControl.c suggests Step_Detector_Bytes comes here <--
+PQUAT6_BYTES = 6
+GEOMAG_BYTES = 14
+PRESSURE_BYTES = 6
+GYRO_CALIBR_BYTES = 12 # lcm20948MPUFifoControl.c suggests Gyro_Calibr_Bytes is not supported?
+COMPASS_CALIBR_BYTES = 12
+STEP_DETECTOR_BYTES = 4 # See note above
+ACCEL_ACCURACY_BYTES = 2
+GYRO_ACCURACY_BYTES = 2
+COMPASS_ACCURACY_BYTES = 2
+FSYNC_DETECTION_BYTES = 2 # lcm20948MPUFifoControl.c suggests Fsync_Detection_Bytes is not supported?
+PICKUP_BYTES = 2
+ACTIVITY_RECOGNITION_BYTES = 6
+SECONDARY_ON_OFF_BYTES = 2
+FOOTER_SIZE = 2
+MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from the FIFO in one go
+
+
 class BaseStruct(ctypes.Structure):
     _pack_ = 1
 
@@ -52,6 +79,7 @@ class BaseStruct(ctypes.Structure):
 
 class Accel(BaseStruct):
     mask = Header_Mask.ACCEL
+    size = RAW_ACCEL_BYTES
     layout = '!hhh'
     _fields_ = [
         ('X', ctypes.c_int16),
@@ -62,6 +90,7 @@ class Accel(BaseStruct):
 
 class Gyro(BaseStruct):
     mask = Header_Mask.GYRO
+    size = RAW_GYRO_BYTES + GYRO_BIAS_BYTES
     layout = '!hhhhhh'
     _fields_ = [
         ('X', ctypes.c_int16),
@@ -75,6 +104,7 @@ class Gyro(BaseStruct):
 
 class Compass(BaseStruct):
     mask = Header_Mask.COMPASS
+    size = COMPASS_BYTES
     layout = '!hhh'
     _fields_ = [
         ('X', ctypes.c_int16),
@@ -85,6 +115,7 @@ class Compass(BaseStruct):
 
 class ALS(BaseStruct):
     mask = Header_Mask.ALS
+    size = ALS_BYTES
     layout = '!xHHHx'
     _fields_ = [
         ('Ch0DATA', ctypes.c_uint16),
@@ -104,6 +135,7 @@ class ALS(BaseStruct):
 #     # The quaternion data is scaled by 2^30.
 class Quat6(BaseStruct):
     mask = Header_Mask.QUAT6
+    size = QUAT6_BYTES
     layout = '!iii'
     _fields_ = [
         ('Q1', ctypes.c_int32),
@@ -122,6 +154,7 @@ class Quat6(BaseStruct):
 
 class Quat9(Quat6):
     mask = Header_Mask.QUAT9
+    size = QUAT9_BYTES
     layout = '!iiih'
     _fields_ = [
         # Q1, Q2, Q3 inherited from Quat6
@@ -136,6 +169,7 @@ class Quat9(Quat6):
 
 class PQuat6(BaseStruct):
     mask = Header_Mask.PQUAT6
+    size = PQUAT6_BYTES
     layout = '!hhh'
     _fields_ = [
         ('Q1', ctypes.c_int16),
@@ -144,22 +178,31 @@ class PQuat6(BaseStruct):
     ]
 
 
-class Geomag(Quat9):
+class Geomag(BaseStruct):
     mask = Header_Mask.GEOMAG
+    size = GEOMAG_BYTES
     layout = '!iiih'
+    _fields_ = [
+        ('Q1', ctypes.c_int32),
+        ('Q2', ctypes.c_int32),
+        ('Q3', ctypes.c_int32),
+        ('Accuracy', ctypes.c_int16),
+    ]
 
 
 class Pressure(BaseStruct):
     mask = Header_Mask.PRESSURE
+    size = PRESSURE_BYTES
     layout = '!3s3s'
     _fields_ = [
-        ('Pressure', ctypes.c_uint8 * 3),
-        ('Temperature', ctypes.c_uint8 * 3),
+        ('Pressure', ctypes.c_char_p),
+        ('Temperature', ctypes.c_char_p),
     ]
 
 
 class Gyro_Calibr(BaseStruct):
     mask = Header_Mask.GYRO_CALIBR
+    size = GYRO_CALIBR_BYTES
     layout = '!iii'
     _fields_ = [
         ('X', ctypes.c_int32), # Hardware unit scaled by 2^15
@@ -167,17 +210,10 @@ class Gyro_Calibr(BaseStruct):
         ('Z', ctypes.c_int32),
     ]
 
-    def asdict(self):
-        div = 32768.0
-        return {
-            'X': self.X / div,
-            'Y': self.Y / div,
-            'Z': self.Z / div,
-        }
-
 
 class Compass_Calibr(BaseStruct):
     mask = Header_Mask.COMPASS_CALIBR
+    size = COMPASS_CALIBR_BYTES
     layout = '!iii'
     _fields_ = [
         ('X', ctypes.c_int32), # The unit is uT scaled by 2^16
@@ -185,17 +221,10 @@ class Compass_Calibr(BaseStruct):
         ('Z', ctypes.c_int32),
     ]
 
-    def asdict(self):
-        div = 65536.0
-        return {
-            'X': self.X / div,
-            'Y': self.Y / div,
-            'Z': self.Z / div,
-        }
-
 
 class Pedometer_Timestamp(BaseStruct):
     mask = Header_Mask.STEP_DETECTOR
+    size = STEP_DETECTOR_BYTES
     layout = '!I'
     _fields_ = [
         ('Timestamp', ctypes.c_uint32), # Timestamp as DMP cycle
@@ -207,6 +236,7 @@ class Pedometer_Timestamp(BaseStruct):
 
 class Accel_Accuracy(BaseStruct):
     mask = Header2_Mask.ACCEL_ACCURACY
+    size = ACCEL_ACCURACY_BYTES
     layout = '!H'
     _fields_ = [
         ('Accuracy', ctypes.c_uint16), # The accuracy is expressed as 0~3. The lowest is 0 and 3 is the highest.
@@ -218,16 +248,19 @@ class Accel_Accuracy(BaseStruct):
 
 class Gyro_Accuracy(Accel_Accuracy):
     mask = Header2_Mask.GYRO_ACCURACY
+    size = GYRO_ACCURACY_BYTES
     layout = '!H'
 
 
 class Compass_Accuracy(Accel_Accuracy):
     mask = Header2_Mask.COMPASS_ACCURACY
+    size = COMPASS_ACCURACY_BYTES
     layout = '!H'
 
 
 class Fsync_Delay_Time(BaseStruct):
     mask = Header2_Mask.FSYNC
+    size = FSYNC_DETECTION_BYTES
     layout = '!H'
     _fields_ = [
         ('Value', ctypes.c_uint16), # The data is delay time between Fsync event and the 1st ODR event after Fsync event.
@@ -239,6 +272,7 @@ class Fsync_Delay_Time(BaseStruct):
 
 class Pickup(BaseStruct):
     mask = Header2_Mask.PICKUP
+    size = PICKUP_BYTES
     layout = '!H'
     _fields_ = [
         ('Value', ctypes.c_uint16), # The value “2” indicates pick up is detected.
@@ -260,6 +294,7 @@ class Pickup(BaseStruct):
 #     # Still: 0x20
 class Activity_Recognition(BaseStruct):
     mask = Header2_Mask.ACTIVITY_RECOG
+    size = ACTIVITY_RECOGNITION_BYTES
     layout = '!BBI'
     _fields_ = [
         ('State_Start', ctypes.c_uint8),
@@ -302,6 +337,7 @@ class Activity_Recognition(BaseStruct):
 #     # Proximity On: 0x20
 class Secondary_On_Off(BaseStruct):
     mask = Header2_Mask.SECONDARY_ON_OFF
+    size = SECONDARY_ON_OFF_BYTES
     layout = '!H'
     _fields_ = [
         ('Sensors', ctypes.c_uint16),
@@ -338,19 +374,20 @@ HEADER_SENSORS = [
     Quat6,
     Quat9,
     PQuat6,
+    Pedometer_Timestamp,
     Geomag,
     Pressure,
 #    Gyro_Calibr,
     Compass_Calibr,
-#    Pedometer_Timestamp,
+    Pedometer_Timestamp,
 ]
 
 HEADER2_SENSORS = [
     Accel_Accuracy,
     Gyro_Accuracy,
     Compass_Accuracy,
-#    Fsync_Delay_Time,
+    Fsync_Delay_Time,
     Pickup,
     Activity_Recognition,
-#    Secondary_On_Off,
+    Secondary_On_Off,
 ]

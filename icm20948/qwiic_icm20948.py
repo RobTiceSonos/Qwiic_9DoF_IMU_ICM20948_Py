@@ -51,8 +51,8 @@ New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.s
 """
 #-----------------------------------------------------------------------------
 
-import ctypes
 import qwiic_i2c
+import math
 from struct import unpack
 import time
 
@@ -1057,6 +1057,7 @@ class QwiicIcm20948(object):
             self.gyro_level = 0
             self.fifo_count = 0
             self.dmp_sensor_list = set()
+            self.known_vals = {}
             self.initializeDMP()
             return
 
@@ -1281,7 +1282,8 @@ class QwiicIcm20948(object):
 
         #  Set Gyro FSR (Full scale range) to 2000dps through GYRO_CONFIG_1
         # Set Accel FSR (Full scale range) to 4g through ACCEL_CONFIG
-        self.setFullScaleRangeAccel(gpm4)
+        self.accel_fullscale = gpm4
+        self.setFullScaleRangeAccel(self.accel_fullscale)
         self.setFullScaleRangeGyro(dps2000)
 
         #  The InvenSense Nucleo code also enables the gyro DLPF (but leaves GYRO_DLPFCFG set to zero = 196.6Hz (3dB))
@@ -1460,9 +1462,9 @@ class QwiicIcm20948(object):
         data_out2 = 0
         if data_out & dmp.regs.Data_Output_Control_1.ACCEL:
             data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.ACCEL_ACCURACY
-        if data_out & dmp.regs.Data_Output_Control_1.GYRO_CALIBR:
+        if data_out & dmp.regs.Data_Output_Control_1.GYRO_CALIBR or data_out & dmp.regs.Data_Output_Control_1.GYRO:
             data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.GYRO_ACCURACY
-        if data_out & dmp.regs.Data_Output_Control_1.COMPASS_CALIBR:
+        if data_out & dmp.regs.Data_Output_Control_1.COMPASS_CALIBR or data_out & dmp.regs.Data_Output_Control_1.QUAT9 or data_out & dmp.regs.Data_Output_Control_1.GEOMAG or data_out & dmp.regs.Data_Output_Control_1.COMPASS:
             data_out2 = data_out2 | dmp.regs.Data_Output_Control_2.COMPASS_ACCURACY
 
         # Write the sensor control bits into memory address DATA_OUT_CTL1
@@ -1518,6 +1520,7 @@ class QwiicIcm20948(object):
 
     def readDMPdataFromFIFO(self):
         ret = {}
+        tmp_fifo_count = 0
 
         def getFIFOcount():
             self.setBank(0)
@@ -1527,17 +1530,19 @@ class QwiicIcm20948(object):
             return ctrl & 0x1F
 
         def readFIFO(length: int):
+            nonlocal tmp_fifo_count
             while self.fifo_count < length:
                 self.fifo_count += getFIFOcount()
 
             self.fifo_count -= length
+            tmp_fifo_count += length
             self.setBank(0)
             return self._readBlock(self.AGB0_REG_FIFO_R_W, length)
 
         def processSensors(header: int, sensor_list: list):
             for s in sensor_list:
                 if header & s.mask:
-                    raw = bytes(readFIFO(ctypes.sizeof(s)))
+                    raw = bytes(readFIFO(s.size))
                     data = s(*unpack(s.layout, raw))
                     ret[s.__name__] = data.asdict()
 
@@ -1547,25 +1552,237 @@ class QwiicIcm20948(object):
             dmp_int_status = self._readByte(self.AGB0_REG_DMP_INT_STATUS)
             return (dmp_int_status << 8 | int_status)
 
+        def check_decoded_headers(header, header2):
+            # at least 1 bit must be set
+            if header == 0:
+                return False
+
+            header_bit_mask = dmp.fifo.Header_Mask.ACCEL
+            header_bit_mask |= dmp.fifo.Header_Mask.GYRO
+            header_bit_mask |= dmp.fifo.Header_Mask.COMPASS
+            header_bit_mask |= dmp.fifo.Header_Mask.ALS
+            header_bit_mask |= dmp.fifo.Header_Mask.QUAT6
+            header_bit_mask |= dmp.fifo.Header_Mask.QUAT9
+            header_bit_mask |= dmp.fifo.Header_Mask.PQUAT6
+            header_bit_mask |= dmp.fifo.Header_Mask.GEOMAG
+            header_bit_mask |= dmp.fifo.Header_Mask.GYRO_CALIBR
+            header_bit_mask |= dmp.fifo.Header_Mask.COMPASS_CALIBR
+            header_bit_mask |= dmp.fifo.Header_Mask.STEP_DETECTOR
+            header_bit_mask |= dmp.fifo.Header_Mask.HEADER2
+
+            if header & ~header_bit_mask:
+                return False
+
+            # at least 1 bit must be set if header 2 is set
+            if header & dmp.fifo.Header_Mask.HEADER2:
+                header2_bit_mask = dmp.fifo.Header2_Mask.ACCEL_ACCURACY
+                header2_bit_mask |= dmp.fifo.Header2_Mask.GYRO_ACCURACY
+                header2_bit_mask |= dmp.fifo.Header2_Mask.COMPASS_ACCURACY
+                header2_bit_mask |= dmp.fifo.Header2_Mask.PICKUP
+                header2_bit_mask |= dmp.fifo.Header2_Mask.ACTIVITY_RECOG
+
+                if header2 == 0:
+                    return False
+
+                if header2 & ~header2_bit_mask:
+                    return False
+
+            return True
+
         if not self.dmp:
             raise dmp.Uninitialized('DMP not properly initialized!')
 
         int_status = identify_interrupt()
         if int_status & (dmp.regs.BIT_MSG_DMP_INT | dmp.regs.BIT_MSG_DMP_INT_0):
             # Read the header (2 bytes)
-            header = int.from_bytes(readFIFO(dmp.regs.HEADER_SIZE), byteorder='big')
+            header = int.from_bytes(readFIFO(dmp.fifo.HEADER_SIZE), byteorder='big')
 
             # If the header indicates a header2 is present then read that now
-            header2 = None
+            header2 = 0
             if header & dmp.fifo.Header_Mask.HEADER2:
-                header2 = int.from_bytes(readFIFO(dmp.regs.HEADER2_SIZE), byteorder='big')
+                header2 = int.from_bytes(readFIFO(dmp.fifo.HEADER2_SIZE), byteorder='big')
+
+            if not check_decoded_headers(header, header2):
+                # in that case, stop processing, we might have overflowed so following bytes are non sense
+                self.resetFIFO()
+                self.fifo_count = 0
+                return ret
 
             processSensors(header, dmp.fifo.HEADER_SENSORS)
             if header2:
                 processSensors(header2, dmp.fifo.HEADER2_SENSORS)
 
             # Finally, extract the footer (gyro count)
-            data = readFIFO(dmp.regs.FOOTER_SIZE)
-            # ret['footer'] = int.from_bytes(data, byteorder='big')
+            self.known_vals['footer'] = readFIFO(dmp.fifo.FOOTER_SIZE)
+            self.known_vals.update(ret)
+
+        return ret
+
+    def processDMPdata(self, dmp_data):
+        def convert_quat_rotate_fxp(data):
+            # TODO: implement this!!!
+            return data
+
+        def convert_dmp3_to_body(raw, scale):
+            dat = convert_quat_rotate_fxp(raw)
+            return [x * scale for x in dat]
+
+        def scaleGyro():
+            ret = {}
+            scale_deg = (1 << self.gyro_level) * 250.0  # From raw to dps to degree per seconds
+            scale_deg_bias = 2000.0  # Gyro bias from FIFO is always in 2^20 = 2000 dps regardless of fullscale
+            raw = [dmp_data['Gyro']['X'], dmp_data['Gyro']['Y'], dmp_data['Gyro']['Z']]
+            raw_bias = [dmp_data['Gyro']['BiasX'], dmp_data['Gyro']['BiasY'], dmp_data['Gyro']['BiasZ']]
+
+            if dmp.sensors.Android_Sensors.RAW_GYROSCOPE in self.dmp_sensor_list:
+                out = convert_quat_rotate_fxp(raw)
+                ret['raw'] = {
+                    'x': out[0],
+                    'y': out[1],
+                    'z': out[2],
+                }
+
+            if 'Gyro_Accuracy' in self.known_vals:
+                ret['accuracy'] = self.known_vals['Gyro_Accuracy']
+
+            if dmp.sensors.Android_Sensors.GYROSCOPE in self.dmp_sensor_list:
+                # shift to Q20 to do all calibrated gyrometer operations in Q20
+                # Gyro bias from FIFO is always in 2^20 = 2000 dps regardless of fullscale
+                # Raw gyro from FIFO is in 2^15 = gyro fsr (250/500/1000/2000).
+                raw[0] <<= 5 - (dmp.regs.mpu_gyro_fs.MPU_FS_2000dps - self.gyro_level)
+                raw[1] <<= 5 - (dmp.regs.mpu_gyro_fs.MPU_FS_2000dps - self.gyro_level)
+                raw[2] <<= 5 - (dmp.regs.mpu_gyro_fs.MPU_FS_2000dps - self.gyro_level)
+                # Compute calibrated gyro data based on raw and bias gyro data and convert it from Q20 raw data format to radian per seconds in Android format
+                calib_gyro = convert_dmp3_to_body([
+                    raw[0] - raw_bias[0],
+                    raw[1] - raw_bias[1],
+                    raw[2] - raw_bias[2],
+                ], scale_deg_bias / (1 << 20))
+                ret['calibrated'] = {
+                    'x': calib_gyro[0],
+                    'y': calib_gyro[1],
+                    'z': calib_gyro[2]
+                }
+
+            if dmp.sensors.Android_Sensors.GYROSCOPE_UNCALIBRATED in self.dmp_sensor_list:
+                # Convert raw from Q15 raw data format to radian per seconds in Android format
+                rps = convert_dmp3_to_body(raw, scale_deg / (1 << 15))
+                # Convert gyro bias from Q20 raw data format to radian per seconds in Android format
+                rps_bias = convert_dmp3_to_body(raw_bias, scale_deg_bias / (1 << 20))
+                ret['uncalibrated'] = {
+                    'x': rps[0],
+                    'y': rps[1],
+                    'z': rps[2],
+                    'biasx': rps_bias[0],
+                    'biasy': rps_bias[1],
+                    'biasz': rps_bias[2],
+                }
+
+            return ret
+
+        def scaleAccel():
+            ret = {}
+            raw = [dmp_data['Accel']['X'], dmp_data['Accel']['Y'], dmp_data['Accel']['Z']]
+
+            if dmp.sensors.Android_Sensors.RAW_ACCELEROMETER in self.dmp_sensor_list:
+                out = convert_quat_rotate_fxp(raw)
+                ret['raw'] = {
+                    'x': out[0],
+                    'y': out[1],
+                    'z': out[2],
+                }
+
+            if 'Accel_Accuracy' in self.known_vals:
+                ret['accuracy'] = self.known_vals['Accel_Accuracy']
+
+            if dmp.sensors.Android_Sensors.ACCELEROMETER in self.dmp_sensor_list:
+                # Convert from raw units to g's
+                scale = (1 << self.accel_fullscale) * 2.0 / (1 << 30)
+
+                gs = convert_dmp3_to_body(raw, scale)
+                ret['scaled'] = {
+                    'x': gs[0],
+                    'y': gs[1],
+                    'z': gs[2],
+                }
+
+            return ret
+
+        def scaleCompass():
+            ret = {}
+            raw = [dmp_data['Compass']['X'], dmp_data['Compass']['Y'], dmp_data['Compass']['Z']]
+            scale = float(1 / (1 << 16))
+
+            if dmp.sensors.Android_Sensors.GEOMAGNETIC_FIELD in self.dmp_sensor_list:
+                uts = convert_dmp3_to_body(raw, scale)
+                ret['scaled'] = {
+                    'x': uts[0],
+                    'y': uts[1],
+                    'z': uts[2],
+                }
+
+            if 'Compass_Accuracy' in self.known_vals:
+                ret['accuracy'] = self.known_vals['Compass_Accuracy']
+
+            if dmp.sensors.Android_Sensors.MAGNETIC_FIELD_UNCALIBRATED in self.dmp_sensor_list:
+                cpass_raw_float = [x * scale for x in raw]
+                # get mag bias
+                biasX = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_X, 4), byteorder='big') * scale
+                biasY = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_Y, 4), byteorder='big') * scale
+                biasZ = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_Z, 4), byteorder='big') * scale
+                ret['uncalibrated'] = {
+                    'x': cpass_raw_float[0],
+                    'y': cpass_raw_float[1],
+                    'z': cpass_raw_float[2],
+                    'biasx': biasX,
+                    'biasy': biasY,
+                    'biasz': biasZ,
+                }
+
+            return ret
+
+        ret = {}
+        if 'Gyro' in dmp_data:
+            ret['gyro'] = scaleGyro()
+        if 'Accel' in dmp_data:
+            ret['accel'] = scaleAccel()
+        if 'Compass' in dmp_data:
+            ret['compass'] = scaleCompass()
+        if 'Quat6' in dmp_data:
+            # TODO: calculate Game Rotation Vector
+            # TODO: calculate Gravity
+            # TODO: calculate Linear Acceleration
+            q1 = dmp_data['Quat6']['Q1']
+            q2 = dmp_data['Quat6']['Q2']
+            q3 = dmp_data['Quat6']['Q3']
+            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+            ret['quat6'] = {
+                'q0': q0,
+                'q1': q1,
+                'q2': q2,
+                'q3': q3,
+            }
+        if 'Quat9' in dmp_data:
+            # TODO: calculate Rotation Vector
+            # TODO: calculate Orientation
+            q1 = dmp_data['Quat9']['Q1']
+            q2 = dmp_data['Quat9']['Q2']
+            q3 = dmp_data['Quat9']['Q3']
+            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+            ret['quat9'] = {
+                'q0': q0,
+                'q1': q1,
+                'q2': q2,
+                'q3': q3,
+                'accuracy': dmp_data['Quat9']['Accuracy']
+            }
+        if 'Geomag' in dmp_data:
+            # TODO: calculate Geomagnetic Rotation Vector
+            ret['geomag'] = {
+                'q1': dmp_data['Geomag']['Q1'],
+                'q2': dmp_data['Geomag']['Q2'],
+                'q3': dmp_data['Geomag']['Q3'],
+                'accuracy': dmp_data['Geomag']['Accuracy']
+            }
 
         return ret

@@ -264,6 +264,15 @@ FP_RATE = (240 * 16 + 12)
 # Gyro FSR
 GYRO_FULLSCALE = (72 * 16 + 12)
 
+
+class mpu_gyro_fs(IntEnum):
+    MPU_FS_250dps = 0
+    MPU_FS_500dps = 1
+    MPU_FS_1000dps = 2
+    MPU_FS_2000dps = 3
+    NUM_MPU_GFS = 4
+
+
 # Accel FSR
 # The DMP scales accel raw data internally to align 1g as 2^25.
 # To do this and output hardware unit again as configured FSR, write 0x4000000 to ACC_SCALE DMP register, and write 0x40000 to ACC_SCALE2 DMP register.
@@ -346,30 +355,3 @@ class Motion_Event_Control(IntEnum):
     PEDOMETER_INTERRUPT = 0x2000
     ACTIVITY_RECOG_PEDOM = 0x4000
     BAC_WEARABLE = 0x8000
-
-
-HEADER_SIZE = 2
-HEADER2_SIZE = 2
-RAW_ACCEL_BYTES = 6
-RAW_GYRO_BYTES = 6
-GYRO_BIAS_BYTES = 6
-COMPASS_BYTES = 6
-ALS_BYTES = 8
-QUAT6_BYTES = 12
-QUAT9_BYTES = 14
-# <-- lcm20948MPUFifoControl.c suggests Step_Detector_Bytes comes here <--
-PQUAT6_BYTES = 6
-GEOMAG_BYTES = 14
-PRESSURE_BYTES = 6
-GYRO_CALIBR_BYTES = 12 # lcm20948MPUFifoControl.c suggests Gyro_Calibr_Bytes is not supported?
-COMPASS_CALIBR_BYTES = 12
-STEP_DETECTOR_BYTES = 4 # See note above
-ACCEL_ACCURACY_BYTES = 2
-GYRO_ACCURACY_BYTES = 2
-COMPASS_ACCURACY_BYTES = 2
-FSYNC_DETECTION_BYTES = 2 # lcm20948MPUFifoControl.c suggests Fsync_Detection_Bytes is not supported?
-PICKUP_BYTES = 2
-ACTIVITY_RECOGNITION_BYTES = 6
-SECONDARY_ON_OFF_BYTES = 2
-FOOTER_SIZE = 2
-MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from the FIFO in one go
