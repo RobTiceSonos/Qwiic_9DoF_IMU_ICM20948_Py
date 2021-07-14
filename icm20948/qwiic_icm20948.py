@@ -340,6 +340,8 @@ class QwiicIcm20948(object):
         else:
             self._i2c = i2c_driver
 
+        self.last_bank = -1
+
     # ----------------------------------
     # isConnected()
     #
@@ -381,8 +383,13 @@ class QwiicIcm20948(object):
             :rtype: bool
 
         """
+        if bank == self.last_bank:
+            return
+
         if bank > 3:	# Only 4 possible banks
             raise Exception(f"Invalid bank value {bank}")
+
+        self.last_bank = bank
         bank = ((bank << 4) & 0x30) # bits 5:4 of REG_BANK_SEL
         self._writeByte(self.REG_BANK_SEL, bank)
 
@@ -962,6 +969,8 @@ class QwiicIcm20948(object):
         address = addr
         if Rw:
             address |= (1 << 7) # set bit# set RNW bit [7]
+        else:
+            address &= ~(1 << 7)  # Make sure bit is clear (just in case there is any garbage in that RAM location)
 
         self._writeByte(periph_addr_reg, address)
 
@@ -969,13 +978,13 @@ class QwiicIcm20948(object):
         if not Rw and dataOut:
             self._writeByte(periph_do_reg, dataOut)
 
-        # Set the slave sub-address (reg)
+        # Set the peripheral sub-address (reg)
         subAddress = reg
         self._writeByte(periph_reg_reg, subAddress)
 
         # Set up the control info
         ctrl_reg_slvX = 0x00
-        ctrl_reg_slvX |= len
+        ctrl_reg_slvX |= len & 0x0F
         ctrl_reg_slvX |= (enable << 7)
         ctrl_reg_slvX |= (swap << 6)
         ctrl_reg_slvX |= (data_only << 5)
@@ -1055,7 +1064,6 @@ class QwiicIcm20948(object):
 
         if self.dmp:
             self.gyro_level = 0
-            self.fifo_count = 0
             self.dmp_sensor_list = set()
             self.known_vals = {}
             self.initializeDMP()
@@ -1083,6 +1091,9 @@ class QwiicIcm20948(object):
         self._writeByte(self.AGB0_REG_USER_CTRL, ctrl)
 
     def resetFIFO(self):
+        self.enableDMP(False)
+        self.enableFIFO(False)
+
         self.setBank(0)
         ctrl = self._readByte(self.AGB0_REG_FIFO_RST) & 0xE0
         ctrl = ctrl | 0x1F
@@ -1090,6 +1101,9 @@ class QwiicIcm20948(object):
         # The InvenSense Nucleo examples write 0x1F followed by 0x1E
         ctrl = ctrl & ~1
         self._writeByte(self.AGB0_REG_FIFO_RST, ctrl)
+
+        self.enableDMP(True)
+        self.enableFIFO(True)
 
     def enableDMP(self, enable: bool = True):
         self.setBank(0)
@@ -1137,11 +1151,10 @@ class QwiicIcm20948(object):
                 # Moved across a bank
                 read_size = (memaddr & 0xFF) + write_size - 0x100
 
-            data_cmp = self.readMems(memaddr, read_size)
+            data_cmp = self.readDMPMems(memaddr, read_size)
             # Compare the data
-            for i in range(0, read_size):
-                if data_cmp[i] != data[bytesRead + i]:
-                    raise dmp.FirmwareVerify('Firmware verification failed.')
+            if data_cmp != data[bytesRead:bytesRead + read_size]:
+                raise dmp.FirmwareVerify('Firmware verification failed.')
 
             bytesRead += read_size
             size -= read_size
@@ -1167,14 +1180,14 @@ class QwiicIcm20948(object):
             # This register must be written prior to each access to initialize the register to the proper starting address.
             # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
             self._writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
-            thisLen = length - bytesWritten if length - bytesWritten <= INV_MAX_SERIAL_WRITE else INV_MAX_SERIAL_WRITE
+            thisLen = max(0, min(length - bytesWritten, INV_MAX_SERIAL_WRITE))
 
             # Write data
             self._writeBlock(self.AGB0_REG_MEM_R_W, data[bytesWritten:bytesWritten + thisLen])
             bytesWritten += thisLen
             reg += thisLen
 
-    def readMems(self, reg: int, length: int):
+    def readDMPMems(self, reg: int, length: int):
         ret = []
         bytesRead = 0
 
@@ -1188,7 +1201,7 @@ class QwiicIcm20948(object):
             # This register must be written prior to each access to initialize the register to the proper starting address.
             # The address will auto increment during burst transactions.  Two consecutive bursts without re-initializing the start address would skip one address.
             self._writeByte(self.AGB0_REG_MEM_START_ADDR, lstartaddr)
-            thisLen = length - bytesRead if length - bytesRead <= INV_MAX_SERIAL_READ else INV_MAX_SERIAL_READ
+            thisLen = max(0, min(length - bytesRead, INV_MAX_SERIAL_READ))
 
             # Read data
             ret.extend(self._readBlock(self.AGB0_REG_MEM_R_W, thisLen))
@@ -1255,7 +1268,7 @@ class QwiicIcm20948(object):
         # Since both gyro and accel are running, setting this register should have no effect. But it does. Maybe because the Gyro and Accel are placed in Low Power Mode (cycled)?
         # You can see by monitoring the Aux I2C pins that the next three lines reduce the bus traffic (magnetometer reads) from 1125Hz to the chosen rate: 68.75Hz in this case.
         self.setBank(3)
-        mstODRconfig = 0x04
+        mstODRconfig = 0x04  # Set the ODR configuration to 1100/2^4 = 68.75Hz
         self._writeByte(self.AGB3_REG_I2C_MST_ODR_CONFIG, mstODRconfig)
 
         #  Configure clock source through PWR_MGMT_1
@@ -1306,7 +1319,7 @@ class QwiicIcm20948(object):
         self._writeByte(self.AGB0_REG_INT_ENABLE_1, int_en)
 
         # Reset FIFO through FIFO_RST
-        self.resetFIFO()
+        # self.resetFIFO()
 
         # Set gyro sample rate divider with GYRO_SMPLRT_DIV
         # Set accel sample rate divider with ACCEL_SMPLRT_DIV_2
@@ -1520,31 +1533,44 @@ class QwiicIcm20948(object):
 
     def readDMPdataFromFIFO(self):
         ret = {}
-        tmp_fifo_count = 0
 
         def getFIFOcount():
             self.setBank(0)
             ctrl = int.from_bytes(self._readBlock(self.AGB0_REG_FIFO_COUNT_H, 2), byteorder='big')
 
             # Datasheet says "FIFO_CNT[12:8]"
-            return ctrl & 0x1F
+            return ctrl & 0x1FFF
 
         def readFIFO(length: int):
-            nonlocal tmp_fifo_count
-            while self.fifo_count < length:
-                self.fifo_count += getFIFOcount()
+            ret = []
+            bytesRead = 0
+            fifo_count = 0
+            while fifo_count < length:
+                fifo_count = getFIFOcount()
 
-            self.fifo_count -= length
-            tmp_fifo_count += length
+            if fifo_count >= 1024:
+                raise dmp.fifo.FifoOverflow
+
             self.setBank(0)
-            return self._readBlock(self.AGB0_REG_FIFO_R_W, length)
+            while bytesRead < length:
+                thisLen = max(0, min(length - bytesRead, INV_MAX_SERIAL_READ))
+                ret.extend(self._readBlock(self.AGB0_REG_FIFO_R_W, thisLen))
 
-        def processSensors(header: int, sensor_list: list):
-            for s in sensor_list:
-                if header & s.mask:
-                    raw = bytes(readFIFO(s.size))
-                    data = s(*unpack(s.layout, raw))
-                    ret[s.__name__] = data.asdict()
+                bytesRead += thisLen
+
+            return ret
+
+        def processSensors(size: int, sensors: list):
+            bytesRead = 0
+            frame = bytes(readFIFO(size))
+            for s in sensors:
+                raw = frame[bytesRead:bytesRead + s.size]
+                data = s(*unpack(s.layout, raw))
+                ret[s.__name__] = data.asdict()
+                bytesRead += s.size
+
+            # Finally, extract the footer (gyro count)
+            self.known_vals['footer'] = int.from_bytes(frame[-2:], byteorder='big')
 
         def identify_interrupt():
             self.setBank(0)
@@ -1552,69 +1578,25 @@ class QwiicIcm20948(object):
             dmp_int_status = self._readByte(self.AGB0_REG_DMP_INT_STATUS)
             return (dmp_int_status << 8 | int_status)
 
-        def check_decoded_headers(header, header2):
-            # at least 1 bit must be set
-            if header == 0:
-                return False
-
-            header_bit_mask = dmp.fifo.Header_Mask.ACCEL
-            header_bit_mask |= dmp.fifo.Header_Mask.GYRO
-            header_bit_mask |= dmp.fifo.Header_Mask.COMPASS
-            header_bit_mask |= dmp.fifo.Header_Mask.ALS
-            header_bit_mask |= dmp.fifo.Header_Mask.QUAT6
-            header_bit_mask |= dmp.fifo.Header_Mask.QUAT9
-            header_bit_mask |= dmp.fifo.Header_Mask.PQUAT6
-            header_bit_mask |= dmp.fifo.Header_Mask.GEOMAG
-            header_bit_mask |= dmp.fifo.Header_Mask.GYRO_CALIBR
-            header_bit_mask |= dmp.fifo.Header_Mask.COMPASS_CALIBR
-            header_bit_mask |= dmp.fifo.Header_Mask.STEP_DETECTOR
-            header_bit_mask |= dmp.fifo.Header_Mask.HEADER2
-
-            if header & ~header_bit_mask:
-                return False
-
-            # at least 1 bit must be set if header 2 is set
-            if header & dmp.fifo.Header_Mask.HEADER2:
-                header2_bit_mask = dmp.fifo.Header2_Mask.ACCEL_ACCURACY
-                header2_bit_mask |= dmp.fifo.Header2_Mask.GYRO_ACCURACY
-                header2_bit_mask |= dmp.fifo.Header2_Mask.COMPASS_ACCURACY
-                header2_bit_mask |= dmp.fifo.Header2_Mask.PICKUP
-                header2_bit_mask |= dmp.fifo.Header2_Mask.ACTIVITY_RECOG
-
-                if header2 == 0:
-                    return False
-
-                if header2 & ~header2_bit_mask:
-                    return False
-
-            return True
-
-        if not self.dmp:
-            raise dmp.Uninitialized('DMP not properly initialized!')
-
         int_status = identify_interrupt()
         if int_status & (dmp.regs.BIT_MSG_DMP_INT | dmp.regs.BIT_MSG_DMP_INT_0):
-            # Read the header (2 bytes)
-            header = int.from_bytes(readFIFO(dmp.fifo.HEADER_SIZE), byteorder='big')
+            try:
+                # Read the header (2 bytes)
+                header = int.from_bytes(readFIFO(dmp.fifo.HEADER_SIZE), byteorder='big')
 
-            # If the header indicates a header2 is present then read that now
-            header2 = 0
-            if header & dmp.fifo.Header_Mask.HEADER2:
-                header2 = int.from_bytes(readFIFO(dmp.fifo.HEADER2_SIZE), byteorder='big')
+                # If the header indicates a header2 is present then read that now
+                header2 = 0
+                if header & dmp.fifo.Header_Mask.HEADER2:
+                    header2 = int.from_bytes(readFIFO(dmp.fifo.HEADER2_SIZE), byteorder='big')
 
-            if not check_decoded_headers(header, header2):
-                # in that case, stop processing, we might have overflowed so following bytes are non sense
+                size, sensors = dmp.fifo.calculate_fifo_size(header, header2)
+
+                processSensors(size, sensors)
+                self.known_vals.update(ret)
+
+            except (dmp.fifo.FifoOverflow) as e:
                 self.resetFIFO()
-                self.fifo_count = 0
-                return ret
-
-            processSensors(header, dmp.fifo.HEADER_SENSORS)
-            if header2:
-                processSensors(header2, dmp.fifo.HEADER2_SENSORS)
-
-            # Finally, extract the footer (gyro count)
-            self.known_vals['footer'] = readFIFO(dmp.fifo.FOOTER_SIZE)
-            self.known_vals.update(ret)
+                raise e
 
         return ret
 
@@ -1727,16 +1709,16 @@ class QwiicIcm20948(object):
             if dmp.sensors.Android_Sensors.MAGNETIC_FIELD_UNCALIBRATED in self.dmp_sensor_list:
                 cpass_raw_float = [x * scale for x in raw]
                 # get mag bias
-                biasX = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_X, 4), byteorder='big') * scale
-                biasY = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_Y, 4), byteorder='big') * scale
-                biasZ = int.from_bytes(self.readMems(dmp.regs.CPASS_BIAS_Z, 4), byteorder='big') * scale
+                #biasX = int.from_bytes(self.readDMPMems(dmp.regs.CPASS_BIAS_X, 4), byteorder='big') * scale
+                #biasY = int.from_bytes(self.readDMPMems(dmp.regs.CPASS_BIAS_Y, 4), byteorder='big') * scale
+                #biasZ = int.from_bytes(self.readDMPMems(dmp.regs.CPASS_BIAS_Z, 4), byteorder='big') * scale
                 ret['uncalibrated'] = {
                     'x': cpass_raw_float[0],
                     'y': cpass_raw_float[1],
                     'z': cpass_raw_float[2],
-                    'biasx': biasX,
-                    'biasy': biasY,
-                    'biasz': biasZ,
+                #   'biasx': biasX,
+                #    'biasy': biasY,
+                #    'biasz': biasZ,
                 }
 
             return ret
@@ -1755,9 +1737,9 @@ class QwiicIcm20948(object):
             q1 = dmp_data['Quat6']['Q1']
             q2 = dmp_data['Quat6']['Q2']
             q3 = dmp_data['Quat6']['Q3']
-            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+            # q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
             ret['quat6'] = {
-                'q0': q0,
+                # 'q0': q0,
                 'q1': q1,
                 'q2': q2,
                 'q3': q3,
@@ -1768,9 +1750,9 @@ class QwiicIcm20948(object):
             q1 = dmp_data['Quat9']['Q1']
             q2 = dmp_data['Quat9']['Q2']
             q3 = dmp_data['Quat9']['Q3']
-            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+            #q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
             ret['quat9'] = {
-                'q0': q0,
+            #    'q0': q0,
                 'q1': q1,
                 'q2': q2,
                 'q3': q3,

@@ -35,7 +35,7 @@ def runExample(tx_pipe=None):
     # Setting value can be calculated as follows:
     # Value = (DMP running rate / ODR ) - 1
     # E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-    IMU.setDMPODRrate(dmp.regs.Output_Data_Rate_Control.QUAT9, 10)
+    IMU.setDMPODRrate(dmp.regs.Output_Data_Rate_Control.QUAT9, 0)
     # Enable the FIFO
     IMU.enableFIFO()
     # Enable the DMP
@@ -49,27 +49,28 @@ def runExample(tx_pipe=None):
         # Read any DMP data waiting in the FIFO
         data = IMU.readDMPdataFromFIFO()
 
-        # We have asked for orientation data so we should receive Quat9
-        # Scale to +/- 1 and convert to double. Divide by 2^30
-        quat9 = data['Quat9']
-        q1 = quat9['Q1']
-        q2 = quat9['Q2']
-        q3 = quat9['Q3']
-        q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
-        print(f'W:{q0} X:{q1} Y:{q2} Z:{q3} Acc:{quat9["Accuracy"]}')
+        if data:
+            # We have asked for orientation data so we should receive Quat9
+            # Scale to +/- 1 and convert to double. Divide by 2^30
+            quat9 = data['Quat9']
+            q1 = quat9['Q1']
+            q2 = quat9['Q2']
+            q3 = quat9['Q3']
+            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
+            print(f'W:{q0} X:{q1} Y:{q2} Z:{q3} Acc:{quat9["Accuracy"]}')
 
-        if tx_pipe:
-            anim_data = {
-                'quat_w': q0,
-                'quat_x': q1,
-                'quat_y': q2,
-                'quat_z': q3
-            }
+            if tx_pipe:
+                anim_data = {
+                    'quat_w': q0,
+                    'quat_x': q1,
+                    'quat_y': q2,
+                    'quat_z': q3
+                }
 
-            dat_str = json.dumps(anim_data)
+                dat_str = json.dumps(anim_data)
 
-            os.write(tx_pipe, dat_str.encode("utf-8"))
-            time.sleep(0.08)
+                os.write(tx_pipe, dat_str.encode("utf-8"))
+                time.sleep(0.03)
 
 
 if __name__ == '__main__':

@@ -29,6 +29,44 @@ class Header2_Mask(IntEnum):
     ACCEL_ACCURACY = 0x4000
 
 
+def check_decoded_headers(header, header2):
+    # at least 1 bit must be set
+    if header == 0:
+        return False
+
+    header_bit_mask = Header_Mask.ACCEL
+    header_bit_mask |= Header_Mask.GYRO
+    header_bit_mask |= Header_Mask.COMPASS
+    header_bit_mask |= Header_Mask.ALS
+    header_bit_mask |= Header_Mask.QUAT6
+    header_bit_mask |= Header_Mask.QUAT9
+    header_bit_mask |= Header_Mask.PQUAT6
+    header_bit_mask |= Header_Mask.GEOMAG
+    header_bit_mask |= Header_Mask.GYRO_CALIBR
+    header_bit_mask |= Header_Mask.COMPASS_CALIBR
+    header_bit_mask |= Header_Mask.STEP_DETECTOR
+    header_bit_mask |= Header_Mask.HEADER2
+
+    if header & ~header_bit_mask:
+        return False
+
+    # at least 1 bit must be set if header 2 is set
+    if header & Header_Mask.HEADER2:
+        header2_bit_mask = Header2_Mask.ACCEL_ACCURACY
+        header2_bit_mask |= Header2_Mask.GYRO_ACCURACY
+        header2_bit_mask |= Header2_Mask.COMPASS_ACCURACY
+        header2_bit_mask |= Header2_Mask.PICKUP
+        header2_bit_mask |= Header2_Mask.ACTIVITY_RECOG
+
+        if header2 == 0:
+            return False
+
+        if header2 & ~header2_bit_mask:
+            return False
+
+    return True
+
+
 HEADER_SIZE = 2
 HEADER2_SIZE = 2
 RAW_ACCEL_BYTES = 6
@@ -54,6 +92,16 @@ ACTIVITY_RECOGNITION_BYTES = 6
 SECONDARY_ON_OFF_BYTES = 2
 FOOTER_SIZE = 2
 MAXIMUM_BYTES = 14 # The most bytes we will attempt to read from the FIFO in one go
+
+
+class FifoUnderflow(Exception):
+    """ Raised when the retry limit on the fifo is reached """
+    pass
+
+
+class FifoOverflow(Exception):
+    """ Raised when the fifo has weird data in it """
+    pass
 
 
 class BaseStruct(ctypes.Structure):
@@ -353,10 +401,7 @@ class Secondary_On_Off(BaseStruct):
 
     def asdict(self):
         ret = []
-        for i in self.Lookup:
-            if self.Sensors & i.value:
-                ret.append(i.name)
-        return ret
+        return [i for i in self.Lookup if self.Sensors & i.value]
 
 
 class Footer(BaseStruct):
@@ -391,3 +436,18 @@ HEADER2_SENSORS = [
     Activity_Recognition,
     Secondary_On_Off,
 ]
+
+
+def calculate_fifo_size(header, header2):
+    if not check_decoded_headers(header, header2):
+        # in that case, stop processing, we might have overflowed so following bytes are nonsense
+        raise FifoOverflow
+
+    ret = [h for h in HEADER_SENSORS if h.mask & header]
+
+    ret.extend([h for h in HEADER2_SENSORS if h.mask & header2])
+    size = sum(s.size for s in ret)
+
+    # make sure to add size for the footer
+    size += FOOTER_SIZE
+    return (size, ret)
