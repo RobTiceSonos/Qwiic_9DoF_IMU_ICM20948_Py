@@ -47,6 +47,8 @@ def runExample():
     IMU.resetDMP()
     # Reset FIFO
     IMU.resetFIFO()
+    
+    all_data = []
 
     with open('data.json', 'w', encoding='utf-8') as f:
         now = time.time()
@@ -66,8 +68,9 @@ def runExample():
 
             if proc_data:
                 proc_data.update({'timestamp': now})
+                all_data.append(proc_data)
 
-                json.dump(proc_data, f, ensure_ascii=False, indent=4)
+        json.dump(all_data, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
