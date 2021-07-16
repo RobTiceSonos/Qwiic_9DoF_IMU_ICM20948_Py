@@ -134,8 +134,8 @@ AK09916_mode_self_test 	= (0x01 << 4)
 # Magnetometer Registers (aka sub-addresses when reading as I2C Master)
 AK09916_REG_WIA1 = 0x00
 AK09916_REG_WIA2 = 0x01
-AK09916_REG_RSV1 = 0x03
-AK09916_REG_RSV2 = 0x04
+AK09916_REG_RSV1 = 0x02
+AK09916_REG_RSV2 = 0x03
 AK09916_REG_ST1 = 0x10
 AK09916_REG_HXL = 0x11
 AK09916_REG_HXH = 0x12
@@ -974,13 +974,13 @@ class QwiicIcm20948(object):
 
         self._writeByte(periph_addr_reg, address)
 
-        # If we are setting up a write, configure the Data Out register too
-        if not Rw and dataOut:
-            self._writeByte(periph_do_reg, dataOut)
-
         # Set the peripheral sub-address (reg)
         subAddress = reg
         self._writeByte(periph_reg_reg, subAddress)
+
+        # If we are setting up a write, configure the Data Out register too
+        if not Rw and dataOut:
+            self._writeByte(periph_do_reg, dataOut)
 
         # Set up the control info
         ctrl_reg_slvX = 0x00
