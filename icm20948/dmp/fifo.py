@@ -124,6 +124,9 @@ class BaseStruct(ctypes.Structure):
             result[field] = value
         return result
 
+    def astuple(self):
+        raise NotImplementedError
+
 
 class Accel(BaseStruct):
     mask = Header_Mask.ACCEL
@@ -135,8 +138,11 @@ class Accel(BaseStruct):
         ('Z', ctypes.c_int16),
     ]
 
+    def astuple(self):
+        return (self.X, self.Y, self.Z)
 
-class Gyro(BaseStruct):
+
+class Gyro(Accel):
     mask = Header_Mask.GYRO
     size = RAW_GYRO_BYTES + GYRO_BIAS_BYTES
     layout = '!hhhhhh'
@@ -149,8 +155,11 @@ class Gyro(BaseStruct):
         ('BiasZ', ctypes.c_int16),
     ]
 
+    def astuple(self):
+        return super().astuple() + (self.BiasX, self.BiasY, self.BiasZ)
 
-class Compass(BaseStruct):
+
+class Compass(Accel):
     mask = Header_Mask.COMPASS
     size = COMPASS_BYTES
     layout = '!hhh'
@@ -191,13 +200,21 @@ class Quat6(BaseStruct):
         ('Q3', ctypes.c_int32),
     ]
 
-    def asdict(self):
+    def _scale(self):
         div = 1073741824.0
+        tt = (self.Q1, self.Q2, self.Q3)
+        return tuple((x / div for x in tt))
+
+    def asdict(self):
+        scaled = self._scale()
         return {
-            'Q1': self.Q1 / div,
-            'Q2': self.Q2 / div,
-            'Q3': self.Q3 / div,
+            'Q1': scaled[0],
+            'Q2': scaled[1],
+            'Q3': scaled[2],
         }
+
+    def astuple(self):
+        return self._scale()
 
 
 class Quat9(Quat6):
@@ -225,17 +242,14 @@ class PQuat6(BaseStruct):
         ('Q3', ctypes.c_int16),
     ]
 
+    def astuple(self):
+        return (self.Q1, self.Q2, self.Q3)
 
-class Geomag(BaseStruct):
+
+class Geomag(Quat9):
     mask = Header_Mask.GEOMAG
     size = GEOMAG_BYTES
     layout = '!iiih'
-    _fields_ = [
-        ('Q1', ctypes.c_int32),
-        ('Q2', ctypes.c_int32),
-        ('Q3', ctypes.c_int32),
-        ('Accuracy', ctypes.c_int16),
-    ]
 
 
 class Pressure(BaseStruct):
@@ -258,16 +272,33 @@ class Gyro_Calibr(BaseStruct):
         ('Z', ctypes.c_int32),
     ]
 
+    def _scale(self):
+        div = 32768.0
+        tt = (self.X, self.Y, self.Z)
+        return tuple((x / div for x in tt))
 
-class Compass_Calibr(BaseStruct):
+    def asdict(self):
+        scaled = self._scale()
+        return {
+            'X': scaled[0],
+            'Y': scaled[1],
+            'Z': scaled[2],
+        }
+
+    def astuple(self):
+        return self._scale()
+
+
+class Compass_Calibr(Gyro_Calibr):
     mask = Header_Mask.COMPASS_CALIBR
     size = COMPASS_CALIBR_BYTES
     layout = '!iii'
-    _fields_ = [
-        ('X', ctypes.c_int32), # The unit is uT scaled by 2^16
-        ('Y', ctypes.c_int32),
-        ('Z', ctypes.c_int32),
-    ]
+    # The unit is uT scaled by 2^16
+
+    def _scale(self):
+        div = 65536.0
+        tt = (self.X, self.Y, self.Z)
+        return tuple((x / div for x in tt))
 
 
 class Pedometer_Timestamp(BaseStruct):
@@ -275,7 +306,7 @@ class Pedometer_Timestamp(BaseStruct):
     size = STEP_DETECTOR_BYTES
     layout = '!I'
     _fields_ = [
-        ('Timestamp', ctypes.c_uint32), # Timestamp as DMP cycle
+        ('Timestamp', ctypes.c_uint32),  # Timestamp as DMP cycle
     ]
 
     def asdict(self):
@@ -400,7 +431,6 @@ class Secondary_On_Off(BaseStruct):
         Proximity_On = 0x20
 
     def asdict(self):
-        ret = []
         return [i for i in self.Lookup if self.Sensors & i.value]
 
 

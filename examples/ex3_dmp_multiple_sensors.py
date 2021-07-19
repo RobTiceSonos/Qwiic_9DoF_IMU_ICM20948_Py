@@ -41,7 +41,7 @@ def runExample():
     # Value = (DMP running rate / ODR ) - 1
     # E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
     for reg in dmp.regs.Output_Data_Rate_Control:
-        IMU.setDMPODRrate(reg, 0)
+        IMU.setDMPODRrate(reg, 1)
     # Enable the FIFO
     IMU.enableFIFO()
     # Enable the DMP
@@ -68,7 +68,10 @@ def runExample():
             proc_data = IMU.processDMPdata(data)
 
             if proc_data:
-                proc_data.update({'timestamp': now})
+                proc_data.update({
+                    'timestamp': now,
+                    'footer': IMU.known_vals['footer'],
+                })
 
                 json.dump(proc_data, f, ensure_ascii=False, indent=4)
 
