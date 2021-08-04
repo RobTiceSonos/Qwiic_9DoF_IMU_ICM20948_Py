@@ -1364,7 +1364,7 @@ class QwiicIcm20948(object):
         self.writeMems(dmp.regs.MOTION_EVENT_CTL, event_control.to_bytes(2, byteorder='big'))
 
         # Put chip into low power state
-        self.lowPower(True)
+        # self.lowPower(True)
 
     def setDMPODRrate(self, reg: dmp.regs.Output_Data_Rate_Control, interval: int):
         # Set the ODR registers and clear the ODR counter
@@ -1392,7 +1392,7 @@ class QwiicIcm20948(object):
         self.writeMems(reg.value[1], odr_count_zero)
 
         # Put chip into low power state
-        self.lowPower(True)
+        # self.lowPower(True)
 
     def readDMPdataFromFIFO(self) -> Dict:
         ret = {}
