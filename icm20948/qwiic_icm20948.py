@@ -1080,6 +1080,7 @@ class QwiicIcm20948(object):
         self.setBank(1)
         pll = self._readByte(BANK1.TIMEBASE_CORRECTION_PLL)
         print(f'pll: {pll}')
+        print(f'div: {div}')
 
         # Now calculate the Gyro SF using code taken from the InvenSense example (inv_icm20948_set_gyro_sf)
         MagicConstant = 264446880937391
