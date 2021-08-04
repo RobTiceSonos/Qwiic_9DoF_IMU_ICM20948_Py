@@ -1085,12 +1085,12 @@ class QwiicIcm20948(object):
         MagicConstantScale = 100000
 
         if pll & 0x80:
-            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) / (1270 - (pll & 0x7F)) / MagicConstantScale)
+            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) // (1270 - (pll & 0x7F)) // MagicConstantScale)
         else:
-            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) / (1270 + pll) / MagicConstantScale)
+            ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) // (1270 + pll) // MagicConstantScale)
 
         # saturate the result to prevent overflow
-        gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else int(ResultLL)
+        gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else ResultLL
 
         # Finally, write the value to the DMP GYRO_SF register
         self.writeMems(dmp.regs.GYRO_SF, gyro_sf.to_bytes(4, byteorder='big'))
