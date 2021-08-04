@@ -1079,6 +1079,7 @@ class QwiicIcm20948(object):
         # First read the TIMEBASE_CORRECTION_PLL register from Bank 1
         self.setBank(1)
         pll = self._readByte(BANK1.TIMEBASE_CORRECTION_PLL)
+        print(f'pll: {pll}')
 
         # Now calculate the Gyro SF using code taken from the InvenSense example (inv_icm20948_set_gyro_sf)
         MagicConstant = 264446880937391
@@ -1088,10 +1089,10 @@ class QwiicIcm20948(object):
             ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) // (1270 - (pll & 0x7F)) // MagicConstantScale)
         else:
             ResultLL = (MagicConstant * (1 << self.gyro_level) * (1 + div) // (1270 + pll) // MagicConstantScale)
-
+        print(f'ResultLL: {ResultLL}')
         # saturate the result to prevent overflow
         gyro_sf = 0x7FFFFFFF if ResultLL > 0x7FFFFFFF else ResultLL
-
+        print(f'gyro_sf: {gyro_sf}')
         # Finally, write the value to the DMP GYRO_SF register
         self.writeMems(dmp.regs.GYRO_SF, gyro_sf.to_bytes(4, byteorder='big'))
 
