@@ -8,15 +8,15 @@ import sys
 
 
 SENSOR_LIST = [
-    # dmp.sensors.Sensor_Types.RAW_ACCELEROMETER,
+    dmp.sensors.Sensor_Types.RAW_ACCELEROMETER,
     dmp.sensors.Sensor_Types.RAW_GYROSCOPE,
-    # dmp.sensors.Sensor_Types.MAGNETIC_FIELD_UNCALIBRATED,
-    # dmp.sensors.Sensor_Types.ACCELEROMETER,
-    # dmp.sensors.Sensor_Types.GYROSCOPE,
-#     dmp.sensors.Sensor_Types.GAME_ROTATION_VECTOR,
-#     dmp.sensors.Sensor_Types.GEOMAGNETIC_ROTATION_VECTOR,
-#     dmp.sensors.Sensor_Types.GEOMAGNETIC_FIELD,
-#     dmp.sensors.Sensor_Types.ORIENTATION,
+    dmp.sensors.Sensor_Types.MAGNETIC_FIELD_UNCALIBRATED,
+    dmp.sensors.Sensor_Types.ACCELEROMETER,
+    dmp.sensors.Sensor_Types.GYROSCOPE,
+    dmp.sensors.Sensor_Types.GAME_ROTATION_VECTOR,
+    dmp.sensors.Sensor_Types.GEOMAGNETIC_ROTATION_VECTOR,
+    dmp.sensors.Sensor_Types.GEOMAGNETIC_FIELD,
+    dmp.sensors.Sensor_Types.ORIENTATION,
 ]
 
 

@@ -147,9 +147,6 @@ class Gyro(Accel):
     size = RAW_GYRO_BYTES + GYRO_BIAS_BYTES
     layout = '!hhhhhh'
     _fields_ = [
-        ('X', ctypes.c_int16),
-        ('Y', ctypes.c_int16),
-        ('Z', ctypes.c_int16),
         ('BiasX', ctypes.c_int16),
         ('BiasY', ctypes.c_int16),
         ('BiasZ', ctypes.c_int16),
@@ -163,11 +160,6 @@ class Compass(Accel):
     mask = Header_Mask.COMPASS
     size = COMPASS_BYTES
     layout = '!hhh'
-    _fields_ = [
-        ('X', ctypes.c_int16),
-        ('Y', ctypes.c_int16),
-        ('Z', ctypes.c_int16),
-    ]
 
 
 class ALS(BaseStruct):
