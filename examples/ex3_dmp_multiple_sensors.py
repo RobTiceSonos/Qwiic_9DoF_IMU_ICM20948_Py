@@ -8,15 +8,15 @@ import sys
 
 
 SENSOR_LIST = [
-    dmp.sensors.Sensor_Types.RAW_ACCELEROMETER,
+    # dmp.sensors.Sensor_Types.RAW_ACCELEROMETER,
     dmp.sensors.Sensor_Types.RAW_GYROSCOPE,
-    dmp.sensors.Sensor_Types.MAGNETIC_FIELD_UNCALIBRATED,
-    dmp.sensors.Sensor_Types.ACCELEROMETER,
-    dmp.sensors.Sensor_Types.GYROSCOPE,
-    dmp.sensors.Sensor_Types.GAME_ROTATION_VECTOR,
-    dmp.sensors.Sensor_Types.GEOMAGNETIC_ROTATION_VECTOR,
-    dmp.sensors.Sensor_Types.GEOMAGNETIC_FIELD,
-    dmp.sensors.Sensor_Types.ORIENTATION,
+    # dmp.sensors.Sensor_Types.MAGNETIC_FIELD_UNCALIBRATED,
+    # dmp.sensors.Sensor_Types.ACCELEROMETER,
+    # dmp.sensors.Sensor_Types.GYROSCOPE,
+#     dmp.sensors.Sensor_Types.GAME_ROTATION_VECTOR,
+#     dmp.sensors.Sensor_Types.GEOMAGNETIC_ROTATION_VECTOR,
+#     dmp.sensors.Sensor_Types.GEOMAGNETIC_FIELD,
+#     dmp.sensors.Sensor_Types.ORIENTATION,
 ]
 
 
@@ -41,7 +41,7 @@ def runExample():
     # Value = (DMP running rate / ODR ) - 1
     # E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
     for reg in dmp.regs.Output_Data_Rate_Control:
-        IMU.setDMPODRrate(reg, 1)
+        IMU.setDMPODRrate(reg, 10)
     # Enable the FIFO
     IMU.enableFIFO()
     # Enable the DMP
@@ -72,7 +72,7 @@ def runExample():
                     'timestamp': now,
                     'footer': IMU.known_vals['footer'],
                 })
-
+                print(proc_data)
                 json.dump(proc_data, f, ensure_ascii=False, indent=4)
 
 

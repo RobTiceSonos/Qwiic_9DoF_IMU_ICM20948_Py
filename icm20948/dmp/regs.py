@@ -97,18 +97,21 @@ CPASS_MTX_20 = (24 * 16 + 8) # Compass mount matrix and scale
 CPASS_MTX_21 = (24 * 16 + 12) # Compass mount matrix and scale
 CPASS_MTX_22 = (25 * 16) # Compass mount matrix and scale
 
+
 # bias calibration: all 32-bit
 # The biases are 32-bits in chip frame in hardware unit scaled by:
 # 2^12 (FSR 4g) for accel, 2^15 for gyro, in uT scaled by 2^16 for compass.
-GYRO_BIAS_X = (139 * 16 + 4)
-GYRO_BIAS_Y = (139 * 16 + 8)
-GYRO_BIAS_Z = (139 * 16 + 12)
-ACCEL_BIAS_X = (110 * 16 + 4)
-ACCEL_BIAS_Y = (110 * 16 + 8)
-ACCEL_BIAS_Z = (110 * 16 + 12)
-CPASS_BIAS_X = (126 * 16 + 4)
-CPASS_BIAS_Y = (126 * 16 + 8)
-CPASS_BIAS_Z = (126 * 16 + 12)
+class Bias_Calibration(IntEnum):
+    GYRO_X = (139 * 16 + 4)
+    GYRO_Y = (139 * 16 + 8)
+    GYRO_Z = (139 * 16 + 12)
+    ACCEL_X = (110 * 16 + 4)
+    ACCEL_Y = (110 * 16 + 8)
+    ACCEL_Z = (110 * 16 + 12)
+    CPASS_X = (126 * 16 + 4)
+    CPASS_Y = (126 * 16 + 8)
+    CPASS_Z = (126 * 16 + 12)
+
 
 GYRO_ACCURACY = (138 * 16 + 2)
 GYRO_BIAS_SET = (138 * 16 + 6)
