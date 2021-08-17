@@ -34,7 +34,7 @@ def runExample(tx_pipe=None):
     # Setting value can be calculated as follows:
     # Value = (DMP running rate / ODR ) - 1
     # E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-    IMU.setDMPODRrate(dmp.regs.Output_Data_Rate_Control.QUAT9, 0)
+    IMU.setDMPODRrate(dmp.regs.Output_Data_Rate_Control.QUAT9, 2)
     # Enable the FIFO
     IMU.enableFIFO()
     # Enable the DMP
