@@ -4,7 +4,6 @@ from icm20948 import qwiic_icm20948, dmp
 
 import argparse
 import json
-import math
 import os
 import time
 import sys
@@ -21,7 +20,7 @@ def runExample(tx_pipe=None):
     print("\nSparkFun 9DoF ICM-20948 Sensor DMP Quat 9 Example\n")
     IMU = qwiic_icm20948.QwiicIcm20948()
 
-    if IMU.connected == False:
+    if not IMU.connected:
         print("The Qwiic ICM20948 device isn't connected to the system. Please check your connection", \
             file=sys.stderr)
         return
@@ -47,24 +46,21 @@ def runExample(tx_pipe=None):
 
     while True:
         # Read any DMP data waiting in the FIFO
-        data = IMU.readDMPdataFromFIFO()
+        try:
+            # Read any DMP data waiting in the FIFO
+            data = IMU.readDMPdataFromFIFO()
+        except (dmp.fifo.FifoUnderflow, dmp.fifo.FifoOverflow) as ex:
+            print(f'Exception: {type(ex).__name__}. Continuing...')
+            continue
 
-        if data:
-            # We have asked for orientation data so we should receive Quat9
-            # Scale to +/- 1 and convert to double. Divide by 2^30
-            quat9 = data['Quat9']
-            q1 = quat9['Q1']
-            q2 = quat9['Q2']
-            q3 = quat9['Q3']
-            q0 = math.sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)))
-            print(f'W:{q0} X:{q1} Y:{q2} Z:{q3} Acc:{quat9["Accuracy"]}')
-
+        proc_data = IMU.processDMPdata(data)
+        if proc_data:
             if tx_pipe:
                 anim_data = {
-                    'quat_w': q0,
-                    'quat_x': q1,
-                    'quat_y': q2,
-                    'quat_z': q3
+                    'quat_w': proc_data['quat9']['q0'],
+                    'quat_x': proc_data['quat9']['q1'],
+                    'quat_y': proc_data['quat9']['q2'],
+                    'quat_z': proc_data['quat9']['q3']
                 }
 
                 dat_str = json.dumps(anim_data)
